@@ -16,6 +16,14 @@ let maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
 let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,facePain=0;
 let enemies=[],items=[],projectiles=[],doors=[],particles=[];
 let moveF=0,moveS=0,turnR=0,shooting=false,useBtn=false;
+let aimOffsetY=0,aimSensitivity=3,scrollAimAmount=0;
+let hitFlashTimer=0,weapSwitchTimer=0,weapSwitchFrom=0;
+let shootBtnPressed=false,switchBtnPressed=false;
+let shootBtnAnim=0,switchBtnAnim=0;
+let screenShakeTimer=0,screenShakeIntensity=0;
+let lastDamageDir=0,compassAngle=0;
+let settingsOpen=false,titleSelection=0;
+let smoothPA=0,targetPA=0;
 
 // Audio context for sound effects
 let audioCtx=null;
@@ -314,7 +322,7 @@ function checkItemPickup(){
 }
 
 // Weapon switching
-function switchWeapon(dir){
+function switchWeapon(dir){weapSwitchTimer=1;weapSwitchFrom=curWeap;
   let n=curWeap;
   for(let i=0;i<6;i++){n=(n+dir+6)%6;if(hasWeap[n]){
     const w=WEAPONS[n];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=n;sndWeaponSwitch();return;}
@@ -891,9 +899,9 @@ function gameLoop(){
   else if(gameState==="play"){
     updatePlayer();updateEnemies();updateProjectiles();updateDoors();
     renderScene();renderSprites();renderWeapon();renderCrosshair();
-    renderEffects();renderMinimap();renderHUD();
+    renderEffects();renderMinimap();renderHUD();renderControls();
   }else if(gameState==="dead"){
-    renderScene();renderSprites();renderHUD();renderGameOver();
+    renderScene();renderSprites();renderHUD();renderControls();renderGameOver();
   }else if(gameState==="levelEnd"){
     renderLevelEnd();
   }else if(gameState==="victory"){
@@ -955,11 +963,21 @@ canvas.addEventListener("touchstart",e=>{
     return;
   }
   for(let t of e.changedTouches){
-    if(t.clientX<W/2){// Left side - movement
-      touchL=t.identifier;touchStartL={x:t.clientX,y:t.clientY};
-    }else{// Right side - look/shoot
-      touchR=t.identifier;touchStartR={x:t.clientX,y:t.clientY};
-      shooting=true;
+    const tx=t.clientX,ty=t.clientY;
+    // Check SHOOT button (bottom-right, explosion icon)
+    const shootBtnX=W-35,shootBtnY=H-45;
+    if(Math.sqrt((tx-shootBtnX)**2+(ty-shootBtnY)**2)<22){
+      shooting=true;shootBtnPressed=true;shootBtnAnim=1;continue;
+    }
+    // Check SWITCH WEAPON button (above shoot button, recycling arrows icon)
+    const switchBtnX=W-35,switchBtnY=H-90;
+    if(Math.sqrt((tx-switchBtnX)**2+(ty-switchBtnY)**2)<18){
+      switchWeapon(1);switchBtnPressed=true;switchBtnAnim=1;continue;
+    }
+    if(tx<W/2){// Left side - movement
+      touchL=t.identifier;touchStartL={x:tx,y:ty};
+    }else{// Right side - look/aim
+      touchR=t.identifier;touchStartR={x:tx,y:ty};
     }
   }
 },{passive:false});
@@ -985,6 +1003,7 @@ canvas.addEventListener("touchend",e=>{
   for(let t of e.changedTouches){
     if(t.identifier===touchL){touchL=null;moveF=0;moveS=0;}
     if(t.identifier===touchR){touchR=null;turnR=0;shooting=false;}
+      shootBtnPressed=false;switchBtnPressed=false;
   }
 },{passive:false});
 
@@ -997,19 +1016,81 @@ canvas.addEventListener("click",e=>{
   lastTapTime=now;
 });
 
-// R1 scroll wheel for weapon switching
+// Render on-screen controls (bottom right buttons)
+function renderControls(){
+  if(gameState!=="play")return;
+  const bx1=W-35,by1=H-45,br1=18;
+  const bx2=W-35,by2=H-90,br2=14;
+  // Shoot button (explosion symbol)
+  const sa=shootBtnAnim>0?shootBtnAnim:0;
+  ctx.save();
+  ctx.globalAlpha=0.7+sa*0.3;
+  ctx.fillStyle=shootBtnPressed?"#f84":"#c52";
+  ctx.beginPath();ctx.arc(bx1,by1,br1+sa*3,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle="#fa6";ctx.lineWidth=1.5;ctx.stroke();
+  // Explosion symbol (star burst)
+  ctx.fillStyle="#ff0";ctx.strokeStyle="#ff0";ctx.lineWidth=1.5;
+  ctx.beginPath();
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4;
+    const r1=4+sa*2,r2=9+sa*2;
+    const ix=bx1+Math.cos(a)*r1,iy=by1+Math.sin(a)*r1;
+    const ox=bx1+Math.cos(a)*r2,oy=by1+Math.sin(a)*r2;
+    ctx.moveTo(ix,iy);ctx.lineTo(ox,oy);
+  }
+  ctx.stroke();
+  ctx.beginPath();ctx.arc(bx1,by1,3,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+  // Weapon switch button (recycling arrows symbol)
+  const wa=switchBtnAnim>0?switchBtnAnim:0;
+  ctx.save();
+  ctx.globalAlpha=0.7+wa*0.3;
+  ctx.fillStyle=switchBtnPressed?"#4af":"#36a";
+  ctx.beginPath();ctx.arc(bx2,by2,br2+wa*3,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle="#6cf";ctx.lineWidth=1.5;ctx.stroke();
+  // Recycling arrows symbol (two curved arrows)
+  ctx.strokeStyle="#fff";ctx.lineWidth=1.5;ctx.fillStyle="#fff";
+  // Arrow 1 (top arc)
+  ctx.beginPath();ctx.arc(bx2,by2,7,Math.PI*1.2,Math.PI*0.2);ctx.stroke();
+  // Arrowhead 1
+  const ah1x=bx2+Math.cos(Math.PI*0.2)*7,ah1y=by2+Math.sin(Math.PI*0.2)*7;
+  ctx.beginPath();ctx.moveTo(ah1x,ah1y);ctx.lineTo(ah1x+3,ah1y-2);ctx.lineTo(ah1x+1,ah1y+3);ctx.fill();
+  // Arrow 2 (bottom arc)
+  ctx.beginPath();ctx.arc(bx2,by2,7,Math.PI*0.2+Math.PI,Math.PI*1.2+Math.PI);ctx.stroke();
+  // Arrowhead 2
+  const ah2x=bx2+Math.cos(Math.PI*1.2+Math.PI)*7,ah2y=by2+Math.sin(Math.PI*1.2+Math.PI)*7;
+  ctx.beginPath();ctx.moveTo(ah2x,ah2y);ctx.lineTo(ah2x-3,ah2y+2);ctx.lineTo(ah2x-1,ah2y-3);ctx.fill();
+  ctx.restore();
+  // Movement indicator (bottom left)
+  if(moveF!==0||moveS!==0){
+    ctx.save();ctx.globalAlpha=0.4;
+    ctx.strokeStyle="#0f0";ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(30,H-55,18,0,Math.PI*2);ctx.stroke();
+    const mx=30+moveS*10,my=H-55-moveF*10;
+    ctx.fillStyle="#0f0";ctx.beginPath();ctx.arc(mx,my,3,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+}
+// R1 scroll wheel for AIMING (vertical aim offset)
 canvas.addEventListener("wheel",e=>{
   e.preventDefault();
-  if(gameState==="play"){switchWeapon(e.deltaY>0?1:-1);}
+  if(gameState==="play"){
+    scrollAimAmount=e.deltaY*aimSensitivity*0.01;
+    aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));
+  } else if(gameState==="title"&&settingsOpen){
+    // Adjust sensitivity in settings
+    aimSensitivity=Math.max(1,Math.min(10,aimSensitivity+(e.deltaY>0?0.5:-0.5)));
+  }
 },{passive:false});
 
 // R1 side button for use/interact
 if(isR1){
   document.addEventListener("keydown",e=>{
-    if(e.key==="F5"||e.key==="F6"){tryOpenDoor();e.preventDefault();}
+    if(e.key==="F5"||e.key==="F6"){useBtn=true;tryOpenDoor();e.preventDefault();}
   });
 }
 
 // Initialize
 loadLevel(1);
 gameLoop();
+

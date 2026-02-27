@@ -183,7 +183,7 @@ const LEVELS=[null,
     "3333333333333333"
   ],spawn:{x:1.5,y:1.5,a:0},
   enemies:[
-    {type:"imp",x:5.5,y:1.5},{type:"imp",x:9.5,y:1.5},
+    {type:"imp",x:5.5,y:2.5},{type:"imp",x:9.5,y:1.5},
     {type:"demon",x:12.5,y:2.5},{type:"caco",x:3.5,y:6.5},
     {type:"demon",x:10.5,y:6.5},{type:"imp",x:1.5,y:11.5},
     {type:"caco",x:7.5,y:11.5},{type:"baron",x:12.5,y:13.5},
@@ -264,8 +264,8 @@ function tryOpenDoor(){
     const d=doors.find(d=>d.x===tx&&d.y===ty);
     if(d){
       if(d.locked){
-        if(hasKey[d.locked]){d.locked="";d.opening=true;sndDoor();sndKey();
-          pickupMsg=d.locked+" door unlocked!";pickupTimer=90;return;}
+        if(hasKey[d.locked]){const kc=d.locked;d.locked="";d.opening=true;sndDoor();sndKey();
+          pickupMsg=kc+" door unlocked!";pickupTimer=90;return;}
         else{pickupMsg="Need "+d.locked+" key!";pickupTimer=90;sndHurt();return;}
       }
       if(!d.opening&&d.open<0.1){d.opening=true;sndDoor();}

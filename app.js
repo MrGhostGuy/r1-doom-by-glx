@@ -13,7 +13,7 @@ let hasKey={red:false,blue:false,yellow:false};
 let invulnTimer=0,berserkTimer=0,invisTimer=0,radSuitTimer=0,lightAmpTimer=0,mapReveal=false;
 let ammo={bullet:50,shell:0,rocket:0,cell:0};
 let maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
-let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,facePain=0;
+let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,facePain=0,faceKillGrin=0,activeFaceIdx=0,totalKills=0,audioOn=1,menuSelection=0;
 let enemies=[],items=[],projectiles=[],doors=[],particles=[];
 let moveF=0,moveS=0,turnR=0,shooting=false,useBtn=false;
 let aimOffsetY=0,aimSensitivity=3,scrollAimAmount=0;
@@ -98,6 +98,9 @@ const ITEM_TYPES={
 };
 
 // Level maps - 0=empty,1-5=walls,6=door,7=locked red,8=locked blue,9=locked yellow,E=exit
+
+const FACE_TYPES=[{name:"Marine",color:"#c90",eye:"#000",unlock:0},{name:"Robot",color:"#aaa",eye:"#f00",unlock:10},{name:"Alien",color:"#0a0",eye:"#ff0",unlock:25},{name:"Zombie",color:"#686",eye:"#f80",unlock:50},{name:"Cyborg",color:"#68a",eye:"#0ff",unlock:75},{name:"Demon",color:"#a00",eye:"#ff0",unlock:100}];
+function isFaceUnlocked(i){return totalKills>=FACE_TYPES[i].unlock;}
 const LEVELS=[null,
   {name:"Hangar",map:[
     "1111111111111111",
@@ -384,7 +387,7 @@ function updateProjectiles(){
           vx:(Math.random()-0.5)*0.05,vy:(Math.random()-0.5)*0.05});
         enemies.forEach(e=>{if(!e.dead){const d=Math.sqrt((e.x-p.x)**2+(e.y-p.y)**2);
           if(d<2){const dmg=Math.floor(p.dmg*(1-d/2));e.hp-=dmg;e.pain=8;e.alert=true;
-            if(e.hp<=0){e.dead=true;e.state="dead";e.timer=30;kills++;score+=e.score;}}}});
+            if(e.hp<=0){e.dead=true;e.state="dead";faceKillGrin=30;totalKills++;e.timer=30;kills++;score+=e.score;}}}});
         if(p.owner==="player"){const d=Math.sqrt((px-p.x)**2+(py-p.y)**2);
           if(d<2){takeDamage(Math.floor(50*(1-d/2)));}}
       }return false;}
@@ -392,7 +395,7 @@ function updateProjectiles(){
       let hit=false;enemies.forEach(e=>{if(!e.dead&&!hit){
         const d=Math.sqrt((e.x-p.x)**2+(e.y-p.y)**2);
         if(d<0.4){e.hp-=p.dmg;e.pain=8;e.alert=true;
-          if(e.hp<=0){e.dead=true;e.state="dead";e.timer=30;kills++;score+=e.score;sndDeath();}
+          if(e.hp<=0){e.dead=true;e.state="dead";faceKillGrin=30;totalKills++;e.timer=30;kills++;score+=e.score;sndDeath();}
           hit=true;if(p.type==="rocket"){sndExplosion();
             enemies.forEach(e2=>{if(!e2.dead){const d2=Math.sqrt((e2.x-p.x)**2+(e2.y-p.y)**2);
               if(d2<2&&e2!==e){e2.hp-=Math.floor(p.dmg*(1-d2/2));if(e2.hp<=0){e2.dead=true;e2.state="dead";kills++;score+=e2.score;}}}});}
@@ -465,7 +468,7 @@ function updatePlayer(){
   if(weapAnim>0)weapAnim--;
   if(damageFlash>0)damageFlash--;
   if(pickupTimer>0)pickupTimer--;
-  if(facePain>0)facePain--;
+  if(facePain>0)facePain--;if(faceKillGrin>0)faceKillGrin--;
   if(invulnTimer>0)invulnTimer--;
   if(berserkTimer>0)berserkTimer--;
   if(invisTimer>0)invisTimer--;
@@ -676,7 +679,7 @@ function renderHUD(){
   
   // Face/Status indicator (center)
   const faceX=138,faceY=hy+10,faceW=20,faceH=24;
-  ctx.fillStyle="#c90";ctx.fillRect(faceX,faceY,faceW,faceH);
+  const ft=FACE_TYPES[activeFaceIdx];ctx.fillStyle=ft.color;ctx.fillRect(faceX,faceY,faceW,faceH);
   // Face expression based on health
   if(pHealth<=0){
     ctx.fillStyle="#800";ctx.fillRect(faceX+4,faceY+8,4,2);ctx.fillRect(faceX+12,faceY+8,4,2);
@@ -684,7 +687,7 @@ function renderHUD(){
   }else if(facePain>0){
     ctx.fillStyle="#a00";ctx.fillRect(faceX+3,faceY+8,5,3);ctx.fillRect(faceX+12,faceY+8,5,3);
     ctx.fillStyle="#800";ctx.fillRect(faceX+7,faceY+18,6,2);
-  }else if(pHealth>75){
+  }else if(faceKillGrin>0){ctx.fillStyle=ft.eye;ctx.fillRect(faceX+4,faceY+8,4,4);ctx.fillRect(faceX+12,faceY+8,4,4);ctx.fillStyle="#f00";ctx.fillRect(faceX+6,faceY+16,8,4);}else if(pHealth>75){
     ctx.fillStyle="#000";ctx.fillRect(faceX+5,faceY+8,3,3);ctx.fillRect(faceX+12,faceY+8,3,3);
     ctx.fillStyle="#a00";ctx.fillRect(faceX+7,faceY+18,6,2);
   }else if(pHealth>40){
@@ -695,7 +698,8 @@ function renderHUD(){
     ctx.fillStyle="#600";ctx.fillRect(faceX+7,faceY+16,6,4);
     ctx.fillStyle="#f00";ctx.fillRect(faceX+2,faceY+12,2,6);
   }
-  // Invulnerability face glow
+  ctx.fillStyle="#fff";ctx.font="5px monospace";ctx.textAlign="center";ctx.fillText(ft.name,faceX+faceW/2,faceY+faceH+8);ctx.textAlign="left";
+    // Invulnerability face glow
   if(invulnTimer>0){ctx.fillStyle="rgba(255,255,0,0.3)";ctx.fillRect(faceX,faceY,faceW,faceH);}
   if(berserkTimer>0){ctx.fillStyle="rgba(255,0,0,0.3)";ctx.fillRect(faceX,faceY,faceW,faceH);}
   
@@ -780,6 +784,26 @@ function completeLevel(){
 }
 
 // Title screen
+function renderSkins(){
+  ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#f00";ctx.font="bold 16px monospace";ctx.textAlign="center";
+  ctx.fillText("SKINS",W/2,30);ctx.font="7px monospace";
+  for(var i=0;i<FACE_TYPES.length;i++){var ft=FACE_TYPES[i],y=50+i*35,u=isFaceUnlocked(i);
+    ctx.fillStyle=u?ft.color:"#333";ctx.fillRect(20,y,24,24);
+    ctx.fillStyle=i===activeFaceIdx?"#ff0":"#fff";ctx.textAlign="left";
+    ctx.fillText(u?ft.name:"???",50,y+15);}
+  ctx.fillStyle="#ff0";ctx.textAlign="center";ctx.fillText("[TAP to go back]",W/2,H-15);ctx.textAlign="left";
+}
+function renderSettings(){
+  ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#f00";ctx.font="bold 16px monospace";ctx.textAlign="center";
+  ctx.fillText("SETTINGS",W/2,30);
+  ctx.fillStyle="#fff";ctx.font="8px monospace";
+  ctx.fillText("Sensitivity: "+aimSensitivity,W/2,60);
+  ctx.fillStyle="#444";ctx.fillRect(60,70,120,8);ctx.fillStyle="#f00";ctx.fillRect(60,70,aimSensitivity*12,8);
+  ctx.fillStyle="#fff";ctx.fillText("Audio: "+(audioOn?"ON":"OFF"),W/2,100);
+  ctx.fillStyle="#ff0";ctx.fillText("[TAP to go back]",W/2,130);ctx.textAlign="left";
+}
 function renderTitle(){
   ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
   // Doom-style title
@@ -792,7 +816,9 @@ function renderTitle(){
   ctx.fillText("by GLX",W/2,105);
   // Menu
   ctx.fillStyle="#fff";ctx.font="10px monospace";
-  ctx.fillText("NEW GAME",W/2,150);
+  ctx.fillStyle=menuSelection===0?"#ff0":"#fff";ctx.fillText("PLAY",W/2,140);
+  ctx.fillStyle=menuSelection===1?"#ff0":"#fff";ctx.fillText("SETTINGS",W/2,155);
+  ctx.fillStyle=menuSelection===2?"#ff0":"#fff";ctx.fillText("SKINS",W/2,170);
   ctx.fillStyle="#888";ctx.font="9px monospace";
   ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,170);
   // Flashing start text
@@ -895,7 +921,7 @@ function renderVictory(){
 
 // Main game loop
 function gameLoop(){
-  if(gameState==="title"){renderTitle();}
+  if(gameState==="title"){renderTitle();}else if(gameState==="settings"){renderSettings();}else if(gameState==="skins"){renderSkins();}
   else if(gameState==="play"){
     updatePlayer();updateEnemies();updateProjectiles();updateDoors();
     renderScene();renderSprites();renderWeapon();renderCrosshair();
@@ -924,6 +950,8 @@ function nextLevel(){
 
 // Keyboard controls
 document.addEventListener("keydown",e=>{
+  if(gameState==="title"){if(e.key==="ArrowDown")menuSelection=(menuSelection+1)%3;if(e.key==="ArrowUp")menuSelection=(menuSelection+2)%3;if(e.key==="Enter"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}}
+  if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace"))gameState="title";
   if(gameState==="title"){startGame();return;}
   if(gameState==="dead"){startGame();return;}
   if(gameState==="levelEnd"){nextLevel();return;}
@@ -956,7 +984,7 @@ let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
   if(gameState!=="play"){
-    if(gameState==="title")startGame();
+    if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins")gameState="title";
     else if(gameState==="dead")startGame();
     else if(gameState==="levelEnd")nextLevel();
     else if(gameState==="victory"){level=1;score=0;startGame();}

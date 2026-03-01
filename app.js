@@ -821,11 +821,9 @@ function renderTitle(){
   ctx.fillStyle=menuSelection===2?"#ff0":"#fff";ctx.fillText("SKINS",W/2,170);
   ctx.fillStyle="#888";ctx.font="9px monospace";
   ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,170);
-  // Flashing start text
-  if(Math.floor(gameTime/30)%2===0){
-    ctx.fillStyle="#ff0";ctx.font="bold 10px monospace";
-    ctx.fillText("PRESS ANY KEY / TAP",W/2,200);
-  }
+  // Navigation hint
+  ctx.fillStyle="#888";ctx.font="8px monospace";
+  ctx.fillText("Scroll to navigate, Enter to select",W/2,195);
   // Credits
   ctx.fillStyle="#f80";ctx.font="bold 9px monospace";
   ctx.fillText("Created by",W/2,240);
@@ -952,7 +950,7 @@ function nextLevel(){
 document.addEventListener("keydown",e=>{
   if(gameState==="title"){if(e.key==="ArrowDown")menuSelection=(menuSelection+1)%3;if(e.key==="ArrowUp")menuSelection=(menuSelection+2)%3;if(e.key==="Enter"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}}
   if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace"))gameState="title";
-  if(gameState==="title"){startGame();return;}
+  /* menu handles title keys */
   if(gameState==="dead"){startGame();return;}
   if(gameState==="levelEnd"){nextLevel();return;}
   if(gameState==="victory"){level=1;score=0;startGame();return;}
@@ -984,7 +982,7 @@ let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
   if(gameState!=="play"){
-    if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins")gameState="title";
+    if(gameState==="title"){menuSelection=(menuSelection+1)%3;}else if(gameState==="settings"||gameState==="skins")gameState="title";
     else if(gameState==="dead")startGame();
     else if(gameState==="levelEnd")nextLevel();
     else if(gameState==="victory"){level=1;score=0;startGame();}
@@ -1105,7 +1103,9 @@ canvas.addEventListener("wheel",e=>{
   if(gameState==="play"){
     scrollAimAmount=e.deltaY*aimSensitivity*0.01;
     aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));
-  } else if(gameState==="title"&&settingsOpen){
+  } else if(gameState==="title"&&!settingsOpen){
+      menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;
+    } else if(gameState==="title"&&settingsOpen){
     // Adjust sensitivity in settings
     aimSensitivity=Math.max(1,Math.min(10,aimSensitivity+(e.deltaY>0?0.5:-0.5)));
   }

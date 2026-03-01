@@ -982,7 +982,7 @@ let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
   if(gameState!=="play"){
-    if(gameState==="title"){menuSelection=(menuSelection+1)%3;}else if(gameState==="settings"||gameState==="skins")gameState="title";
+    if(gameState==="settings"||gameState==="skins")gameState="title";
     else if(gameState==="dead")startGame();
     else if(gameState==="levelEnd")nextLevel();
     else if(gameState==="victory"){level=1;score=0;startGame();}
@@ -1103,18 +1103,15 @@ canvas.addEventListener("wheel",e=>{
   if(gameState==="play"){
     scrollAimAmount=e.deltaY*aimSensitivity*0.01;
     aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));
-  } else if(gameState==="title"&&!settingsOpen){
+  } else if(gameState==="title"){
       menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;
-    } else if(gameState==="title"&&settingsOpen){
-    // Adjust sensitivity in settings
-    aimSensitivity=Math.max(1,Math.min(10,aimSensitivity+(e.deltaY>0?0.5:-0.5)));
   }
 },{passive:false});
 
 // R1 side button for use/interact
 if(isR1){
   document.addEventListener("keydown",e=>{
-    if(e.key==="F5"||e.key==="F6"){useBtn=true;tryOpenDoor();e.preventDefault();}
+    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else{useBtn=true;tryOpenDoor();}e.preventDefault();}
   });
 }
 

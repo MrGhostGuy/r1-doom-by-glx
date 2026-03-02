@@ -5,7 +5,7 @@ const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 canvas.width=W;canvas.height=H;
 const isR1=typeof PluginMessageHandler!=="undefined";
-let gameState="title",level=1,maxLevel=3,score=0,gameTime=0,lastTime=0;
+let gameState="title",level=1,maxLevel=3,score=0,gameTime=0;
 let kills=0,totalEnemies=0,itemsCollected=0,totalItems=0,secretsFound=0,totalSecrets=0;
 let px=3.5,py=3.5,pa=0,pHealth=100,pMaxHealth=100,pArmor=0,pArmorType=0;
 let curWeap=1,hasWeap=[true,true,false,false,false,false],weapAnim=0,fireTimer=0;
@@ -17,13 +17,13 @@ let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,faceP
 let enemies=[],items=[],projectiles=[],doors=[],particles=[];
 let moveF=0,moveS=0,turnR=0,shooting=false,useBtn=false;
 let aimOffsetY=0,aimSensitivity=3,scrollAimAmount=0;
-let hitFlashTimer=0,weapSwitchTimer=0,weapSwitchFrom=0;
+let hitFlashTimer=0;
 let shootBtnPressed=false,switchBtnPressed=false;
 let shootBtnAnim=0,switchBtnAnim=0;
 let screenShakeTimer=0,screenShakeIntensity=0;
-let lastDamageDir=0,compassAngle=0;
-let settingsOpen=false,titleSelection=0;
-let smoothPA=0,targetPA=0;
+
+
+
 
 // Audio context for sound effects
 let audioCtx=null;
@@ -820,7 +820,7 @@ function renderTitle(){
   ctx.fillStyle=menuSelection===1?"#ff0":"#fff";ctx.fillText("SETTINGS",W/2,155);
   ctx.fillStyle=menuSelection===2?"#ff0":"#fff";ctx.fillText("SKINS",W/2,170);
   ctx.fillStyle="#888";ctx.font="9px monospace";
-  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,170);
+  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,185);
   // Navigation hint
   ctx.fillStyle="#888";ctx.font="8px monospace";
   ctx.fillText("Scroll to navigate, Enter to select",W/2,195);
@@ -1111,7 +1111,7 @@ canvas.addEventListener("wheel",e=>{
 // R1 side button for use/interact
 if(isR1){
   document.addEventListener("keydown",e=>{
-    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else{useBtn=true;tryOpenDoor();}e.preventDefault();}
+    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins"){gameState="title";}else if(gameState==="dead"){startGame();}else if(gameState==="levelEnd"){nextLevel();}else if(gameState==="victory"){level=1;score=0;startGame();}else if(gameState==="play"){useBtn=true;tryOpenDoor();}}e.preventDefault();
   });
 }
 

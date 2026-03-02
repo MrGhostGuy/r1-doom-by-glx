@@ -948,8 +948,8 @@ function nextLevel(){
 
 // Keyboard controls
 document.addEventListener("keydown",e=>{
-  if(gameState==="title"){if(e.key==="ArrowDown")menuSelection=(menuSelection+1)%3;if(e.key==="ArrowUp")menuSelection=(menuSelection+2)%3;if(e.key==="Enter"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}}
-  if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace"))gameState="title";
+    if(gameState==="title"){if(e.key==="ArrowDown")menuSelection=(menuSelection+1)%3;if(e.key==="ArrowUp")menuSelection=(menuSelection+2)%3;if(e.key==="Enter"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}e.preventDefault();return;}
+    if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace")){gameState="title";e.preventDefault();return;}
   /* menu handles title keys */
   if(gameState==="dead"){startGame();return;}
   if(gameState==="levelEnd"){nextLevel();return;}

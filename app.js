@@ -832,6 +832,11 @@ function renderTitle(){
   ctx.fillStyle="#0ff";ctx.font="bold 9px monospace";
   ctx.fillText("[GhostLegacyX]",W/2,268);
   ctx.textAlign="left";
+    // Debug overlay - show last input event for R1 diagnosis
+    if(typeof lastInputDebug!=="undefined"){
+      ctx.fillStyle="#0ff";ctx.font="bold 7px monospace";ctx.textAlign="center";
+      ctx.fillText("DBG: "+lastInputDebug,W/2,H-4);ctx.textAlign="left";
+    }
   gameTime++;
 }
 
@@ -981,6 +986,21 @@ document.addEventListener("keyup",e=>{
 let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
+        // R1 TITLE MENU - tap on items or tap top/bottom half to navigate
+        if(gameState==="title"){
+          var tt=e.changedTouches?e.changedTouches[0]:e;
+          var ty2=tt.clientY||0;
+          lastInputDebug="touch y="+Math.round(ty2);
+          var scale=canvas.height/H;
+          var playY=140*scale,settY=155*scale,skinY=170*scale;
+          var margin=12*scale;
+          if(Math.abs(ty2-playY)<margin){menuSelection=0;lastInputDebug="tap PLAY";}
+          else if(Math.abs(ty2-settY)<margin){menuSelection=1;lastInputDebug="tap SETTINGS";}
+          else if(Math.abs(ty2-skinY)<margin){menuSelection=2;lastInputDebug="tap SKINS";}
+          else if(ty2<canvas.height*0.4){menuSelection=(menuSelection+2)%3;lastInputDebug="tap up";}
+          else{menuSelection=(menuSelection+1)%3;lastInputDebug="tap down";}
+          return;
+        }
   if(gameState!=="play"){
     if(gameState==="settings"||gameState==="skins")gameState="title";
     else if(gameState==="dead")startGame();
@@ -1124,6 +1144,72 @@ document.addEventListener("wheel",e=>{e.preventDefault();if(gameState==="title")
 document.addEventListener("keydown",e=>{lastInputDebug="key="+e.key+" code="+e.code+" state="+gameState;});
 
 // Initialize
+
+// === R1 COMPREHENSIVE INPUT CAPTURE ===
+// Capture ALL event types to diagnose what R1 hardware actually sends
+var r1EvtLog=["scroll","pointerdown","pointermove","pointerup",
+  "mousedown","mouseup","click","dblclick","contextmenu"];
+r1EvtLog.forEach(function(evtName){
+  document.addEventListener(evtName,function(e){
+    lastInputDebug=evtName+" x="+(e.clientX||0)+" y="+(e.clientY||0);
+    if(gameState==="title"&&(evtName==="click"||evtName==="pointerdown"||evtName==="mousedown")){
+      var cy=e.clientY||0,scale=canvas.height/H;
+      var playY=140*scale,settY=155*scale,skinY=170*scale,margin=12*scale;
+      if(Math.abs(cy-playY)<margin){menuSelection=0;startGame();}
+      else if(Math.abs(cy-settY)<margin){menuSelection=1;gameState="settings";}
+      else if(Math.abs(cy-skinY)<margin){menuSelection=2;gameState="skins";}
+      else if(cy<canvas.height*0.4){menuSelection=(menuSelection+2)%3;}
+      else if(cy>canvas.height*0.6){menuSelection=(menuSelection+1)%3;}
+    }
+  },{passive:true});
+});
+
+// Document-level touch for R1 WebView (backup)
+document.addEventListener("touchstart",function(e){
+  var t=e.changedTouches?e.changedTouches[0]:e;
+  lastInputDebug="doc-touch y="+Math.round(t.clientY);
+  if(gameState==="title"){
+    var cy=t.clientY,scale=canvas.height/H;
+    var playY=140*scale,settY=155*scale,skinY=170*scale,margin=12*scale;
+    if(Math.abs(cy-playY)<margin){menuSelection=0;}
+    else if(Math.abs(cy-settY)<margin){menuSelection=1;}
+    else if(Math.abs(cy-skinY)<margin){menuSelection=2;}
+    else if(cy<canvas.height*0.4){menuSelection=(menuSelection+2)%3;}
+    else{menuSelection=(menuSelection+1)%3;}
+  }
+},{passive:true});
+
+// Double-tap on title = confirm selection
+var titleLastTap=0;
+document.addEventListener("touchend",function(e){
+  if(gameState==="title"){
+    var now=Date.now();
+    if(now-titleLastTap<400){
+      lastInputDebug="dbl-tap sel="+menuSelection;
+      if(menuSelection===0)startGame();
+      else if(menuSelection===1)gameState="settings";
+      else gameState="skins";
+    }
+    titleLastTap=now;
+  }
+},{passive:true});
+
+// Catch ALL keydown codes (R1 scroll wheel may send unusual keyCodes)
+document.addEventListener("keydown",function(e){
+  lastInputDebug="KEY "+e.key+" c="+e.code+" kc="+e.keyCode;
+  if(gameState==="title"){
+    var k=e.key,kc=e.keyCode;
+    if(k==="ArrowDown"||k==="Down"||kc===40||kc===34||k==="PageDown"||k==="VolumeDown"){menuSelection=(menuSelection+1)%3;e.preventDefault();}
+    else if(k==="ArrowUp"||k==="Up"||kc===38||kc===33||k==="PageUp"||k==="VolumeUp"){menuSelection=(menuSelection+2)%3;e.preventDefault();}
+    else if(k==="Enter"||k==="F5"||k==="F6"||k===" "||kc===13||kc===32){
+      if(menuSelection===0)startGame();
+      else if(menuSelection===1)gameState="settings";
+      else gameState="skins";
+      e.preventDefault();
+    }
+  }
+});
+
 loadLevel(1);
 gameLoop();
 

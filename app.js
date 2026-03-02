@@ -792,7 +792,7 @@ function renderSkins(){
     ctx.fillStyle=u?ft.color:"#333";ctx.fillRect(20,y,24,24);
     ctx.fillStyle=i===activeFaceIdx?"#ff0":"#fff";ctx.textAlign="left";
     ctx.fillText(u?ft.name:"???",50,y+15);}
-  ctx.fillStyle="#ff0";ctx.textAlign="center";ctx.fillText("[TAP to go back]",W/2,H-15);ctx.textAlign="left";
+  ctx.fillStyle="#ff0";ctx.textAlign="center";ctx.fillText("[Side button to go back]",W/2,H-15);ctx.textAlign="left";
 }
 function renderSettings(){
   ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
@@ -802,7 +802,7 @@ function renderSettings(){
   ctx.fillText("Sensitivity: "+aimSensitivity,W/2,60);
   ctx.fillStyle="#444";ctx.fillRect(60,70,120,8);ctx.fillStyle="#f00";ctx.fillRect(60,70,aimSensitivity*12,8);
   ctx.fillStyle="#fff";ctx.fillText("Audio: "+(audioOn?"ON":"OFF"),W/2,100);
-  ctx.fillStyle="#ff0";ctx.fillText("[TAP to go back]",W/2,130);ctx.textAlign="left";
+  ctx.fillStyle="#ff0";ctx.fillText("[Side button to go back]",W/2,130);ctx.textAlign="left";
 }
 function renderTitle(){
   ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
@@ -847,7 +847,7 @@ function renderGameOver(){
   ctx.fillText("Level: "+level+" - "+LEVELS[level].name,W/2,180);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#ff0";ctx.font="bold 10px monospace";
-    ctx.fillText("TAP TO RESTART",W/2,220);
+    ctx.fillText("SIDE BUTTON TO RESTART",W/2,220);
   }
   ctx.textAlign="left";gameTime++;
 }
@@ -887,8 +887,8 @@ function renderLevelEnd(){
   ctx.fillText(rating,W/2,245);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#fff";ctx.font="9px monospace";
-    if(level<maxLevel)ctx.fillText("TAP FOR NEXT LEVEL",W/2,270);
-    else ctx.fillText("TAP - YOU WON!",W/2,270);
+    if(level<maxLevel)ctx.fillText("SIDE BUTTON: NEXT LEVEL",W/2,270);
+    else ctx.fillText("YOU WON!",W/2,270);
   }
   ctx.textAlign="left";gameTime++;
 }
@@ -912,7 +912,7 @@ function renderVictory(){
   ctx.fillText("[GhostLegacyX]",W/2,218);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#fff";ctx.font="9px monospace";
-    ctx.fillText("TAP TO PLAY AGAIN",W/2,260);
+    ctx.fillText("SIDE BUTTON TO PLAY AGAIN",W/2,260);
   }
   ctx.textAlign="left";gameTime++;
 }

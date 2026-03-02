@@ -1109,11 +1109,19 @@ canvas.addEventListener("wheel",e=>{
 },{passive:false});
 
 // R1 side button for use/interact
-if(isR1){
+// R1 side button - always register (removed isR1 gate for reliability)
+{
   document.addEventListener("keydown",e=>{
     if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins"){gameState="title";}else if(gameState==="dead"){startGame();}else if(gameState==="levelEnd"){nextLevel();}else if(gameState==="victory"){level=1;score=0;startGame();}else if(gameState==="play"){useBtn=true;tryOpenDoor();}}e.preventDefault();
   });
 }
+
+// Debug log for R1 input diagnosis
+let lastInputDebug="waiting for input...";
+// Document-level wheel listener (backup for R1 WebView)
+document.addEventListener("wheel",e=>{if(gameState==="title"){menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;lastInputDebug="wheel dY="+e.deltaY+" sel="+menuSelection;}else if(gameState==="play"){scrollAimAmount=e.deltaY*aimSensitivity*0.01;aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));}},{passive:true});
+// Log ALL keydown events for R1 diagnosis
+document.addEventListener("keydown",e=>{lastInputDebug="key="+e.key+" code="+e.code+" state="+gameState;});
 
 // Initialize
 loadLevel(1);

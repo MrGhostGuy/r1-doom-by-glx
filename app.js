@@ -21,14 +21,17 @@ let hitFlashTimer=0;
 let shootBtnPressed=false,switchBtnPressed=false;
 let shootBtnAnim=0,switchBtnAnim=0;
 let screenShakeTimer=0,screenShakeIntensity=0;
+let doorUseRequested=false;
+let berserkFistDmg=10;
 
 
 
 
 // Audio context for sound effects
 let audioCtx=null;
-function initAudio(){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
+function initAudio(){if(!audioOn)return;try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
 function playSound(freq,dur,type,vol){
+  if(!audioOn)return;
   if(!audioCtx)return;try{
   const o=audioCtx.createOscillator(),g=audioCtx.createGain();
   o.type=type||"square";o.frequency.setValueAtTime(freq,audioCtx.currentTime);
@@ -42,6 +45,7 @@ function sndRocket(){playSound(60,0.3,"sawtooth",0.3);}
 function sndPlasma(){playSound(800,0.08,"sine",0.15);}
 function sndPickup(){playSound(600,0.1,"sine",0.15);setTimeout(()=>playSound(900,0.1,"sine",0.15),100);}
 function sndDoor(){playSound(100,0.3,"square",0.1);}
+function sndDoorClosed(){playSound(60,0.15,"square",0.15);}
 function sndHurt(){playSound(150,0.15,"sawtooth",0.2);}
 function sndDeath(){playSound(80,0.4,"sawtooth",0.25);}
 function sndKey(){playSound(500,0.15,"sine",0.2);setTimeout(()=>playSound(700,0.15,"sine",0.2),150);}
@@ -220,6 +224,7 @@ function loadLevel(n){
   maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
   hasBackpack=false;damageFlash=0;pickupMsg="";pickupTimer=0;
   kills=0;itemsCollected=0;secretsFound=0;
+  berserkFistDmg=10;
   enemies=[];items=[];projectiles=[];doors=[];particles=[];
   totalEnemies=lv.enemies.length;totalItems=lv.items.length;totalSecrets=lv.secrets?lv.secrets.length:0;
   lv.enemies.forEach(e=>{
@@ -249,7 +254,8 @@ function isWall(x,y){
   if(c==="E")return false;
   if(c>=6&&c<=9){
     const d=doors.find(d=>d.x===mx&&d.y===my);
-    return d?d.open<0.8:true;
+    if(d)return d.open<0.9;
+    return true;
   }
   return c>0;
 }
@@ -259,32 +265,52 @@ function canMove(nx,ny){
   return !isWall(nx-r,ny-r)&&!isWall(nx+r,ny-r)&&!isWall(nx-r,ny+r)&&!isWall(nx+r,ny+r);
 }
 
-// Door interaction
+// Door interaction - FIXED: more reliable, better feedback
 function tryOpenDoor(){
   const dx=Math.cos(pa),dy=Math.sin(pa);
-  for(let s=0.5;s<2;s+=0.5){
+  for(let s=0.3;s<2.5;s+=0.3){
     const tx=Math.floor(px+dx*s),ty=Math.floor(py+dy*s);
+    if(tx<0||tx>=mapW||ty<0||ty>=mapH)continue;
     const d=doors.find(d=>d.x===tx&&d.y===ty);
     if(d){
       if(d.locked){
-        if(hasKey[d.locked]){const kc=d.locked;d.locked="";d.opening=true;sndDoor();sndKey();
-          pickupMsg=kc+" door unlocked!";pickupTimer=90;return;}
-        else{pickupMsg="Need "+d.locked+" key!";pickupTimer=90;sndHurt();return;}
+        if(hasKey[d.locked]){
+          const kc=d.locked;
+          d.locked="";
+          d.opening=true;
+          d.open=0;
+          sndDoor();sndKey();
+          pickupMsg=kc.charAt(0).toUpperCase()+kc.slice(1)+" door unlocked!";
+          pickupTimer=90;
+          return true;
+        } else{
+          pickupMsg="Need "+d.locked+" key!";
+          pickupTimer=90;
+          sndDoorClosed();
+          return false;
+        }
       }
-      if(!d.opening&&d.open<0.1){d.opening=true;sndDoor();}
-      return;
+      if(d.open<0.1){
+        d.opening=true;
+        sndDoor();
+        return true;
+      }
+      return false;
     }
-    // Check exit
-    if(map[ty]&&map[ty][tx]==="E"){completeLevel();return;}
+    if(map[ty]&&map[ty][tx]==="E"){completeLevel();return true;}
+    const cell=map[ty][tx];
+    if(cell>0&&cell<6)return false;
   }
+  return false;
 }
 
-// Item pickup
+// Item pickup - FIXED: better radius, proper secret detection
 function checkItemPickup(){
   items.forEach(it=>{
     if(it.picked)return;
     const dx=it.x-px,dy=it.y-py;
-    if(dx*dx+dy*dy<0.5){
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<0.8){
       const t=ITEM_TYPES[it.type];
       let picked=false;
       if(t.effect==="health"){
@@ -303,7 +329,7 @@ function checkItemPickup(){
         if(!hasKey[t.keyType]){hasKey[t.keyType]=true;picked=true;sndKey();}
       }else if(t.effect==="powerup"){
         if(t.pType==="invuln"){invulnTimer=t.dur;picked=true;}
-        else if(t.pType==="berserk"){berserkTimer=t.dur;pHealth=Math.max(pHealth,100);WEAPONS[0].dmg=100;picked=true;}
+        else if(t.pType==="berserk"){berserkTimer=t.dur;pHealth=Math.max(pHealth,100);berserkFistDmg=100;picked=true;}
         else if(t.pType==="invis"){invisTimer=t.dur;picked=true;}
         else if(t.pType==="radsuit"){radSuitTimer=t.dur;picked=true;}
         else if(t.pType==="map"){mapReveal=true;picked=true;}
@@ -325,7 +351,7 @@ function checkItemPickup(){
 }
 
 // Weapon switching
-function switchWeapon(dir){weapSwitchTimer=1;weapSwitchFrom=curWeap;
+function switchWeapon(dir){
   let n=curWeap;
   for(let i=0;i<6;i++){n=(n+dir+6)%6;if(hasWeap[n]){
     const w=WEAPONS[n];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=n;sndWeaponSwitch();return;}
@@ -352,7 +378,7 @@ function fireWeapon(){
   }else if(curWeap===5){// Plasma
     projectiles.push({x:px,y:py,dx:Math.cos(pa)*0.12,dy:Math.sin(pa)*0.12,dmg:w.dmg,owner:"player",life:200,type:"plasma"});
   }else{// Hitscan
-    let dmg=w.dmg;if(berserkTimer>0&&curWeap===0)dmg=100;
+    let dmg=w.dmg;if(berserkTimer>0&&curWeap===0)dmg=berserkFistDmg;
     const spread=w.spread;const pellets=curWeap===2?7:1;
     for(let p=0;p<pellets;p++){
       const a=pa+(Math.random()-0.5)*spread;
@@ -370,7 +396,7 @@ function fireWeapon(){
         const d=curWeap===2?Math.floor(dmg/pellets*(0.8+Math.random()*0.4)):dmg;
         hit.hp-=d;hit.pain=8;hit.alert=true;hit.state="chase";
         particles.push({x:hit.x,y:hit.y,color:"#f00",life:10,type:"blood"});
-        if(hit.hp<=0){hit.dead=true;hit.state="dead";hit.timer=30;kills++;score+=hit.score;sndDeath();}
+        if(hit.hp<=0){hit.dead=true;hit.state="dead";hit.timer=30;kills++;score+=hit.score;faceKillGrin=30;totalKills++;sndDeath();}
         else{sndHurt();}
       }
     }
@@ -386,10 +412,10 @@ function updateProjectiles(){
         for(let i=0;i<8;i++)particles.push({x:p.x,y:p.y,color:"#f80",life:15+Math.random()*10,type:"explosion",
           vx:(Math.random()-0.5)*0.05,vy:(Math.random()-0.5)*0.05});
         enemies.forEach(e=>{if(!e.dead){const d=Math.sqrt((e.x-p.x)**2+(e.y-p.y)**2);
-          if(d<2){const dmg=Math.floor(p.dmg*(1-d/2));e.hp-=dmg;e.pain=8;e.alert=true;
+          if(d<2.5){const dmg=Math.floor(p.dmg*(1-d/2.5));e.hp-=dmg;e.pain=8;e.alert=true;
             if(e.hp<=0){e.dead=true;e.state="dead";faceKillGrin=30;totalKills++;e.timer=30;kills++;score+=e.score;}}}});
         if(p.owner==="player"){const d=Math.sqrt((px-p.x)**2+(py-p.y)**2);
-          if(d<2){takeDamage(Math.floor(50*(1-d/2)));}}
+          if(d<2.5){takeDamage(Math.floor(50*(1-d/2.5)));}}
       }return false;}
     if(p.owner==="player"){
       let hit=false;enemies.forEach(e=>{if(!e.dead&&!hit){
@@ -402,7 +428,7 @@ function updateProjectiles(){
         }}});if(hit)return false;
     }else{
       const d=Math.sqrt((px-p.x)**2+(py-p.y)**2);
-      if(d<0.3){takeDamage(p.dmg);return false;}
+      if(d<0.4){takeDamage(p.dmg);return false;}
     }
     return true;
   });
@@ -422,11 +448,18 @@ function takeDamage(d){
 function updateEnemies(){
   enemies.forEach(e=>{
     if(e.dead){e.timer--;return;}
-    if(e.pain>0){e.pain--;return;}
+    if(e.pain>0){e.pain--;if(e.pain>6)return;}
     const dx=px-e.x,dy=py-e.y,dist=Math.sqrt(dx*dx+dy*dy);
     const toPlayer=Math.atan2(dy,dx);
-    // Alert if close or shot
-    if(dist<8&&!e.alert){e.alert=true;e.state="chase";}
+    // Alert if close with line of sight
+    if(dist<10&&!e.alert){
+      const losDx=dx/dist,losDy=dy/dist;
+      let blocked=false;
+      for(let s=0.5;s<dist;s+=0.5){
+        if(isWall(e.x+losDx*s,e.y+losDy*s)){blocked=true;break;}
+      }
+      if(!blocked){e.alert=true;e.state="chase";}
+    }
     if(e.state==="idle"){
       e.timer--;if(e.timer<=0){e.dir=Math.random()*Math.PI*2;e.timer=60+Math.random()*120;}
       const nx=e.x+Math.cos(e.dir)*e.spd*0.5,ny=e.y+Math.sin(e.dir)*e.spd*0.5;
@@ -435,24 +468,44 @@ function updateEnemies(){
       e.dir=toPlayer;e.attackTimer--;
       if(dist<1.5&&e.type==="demon"){
         if(e.attackTimer<=0){takeDamage(e.dmg);e.attackTimer=e.rate;}
-      }else if(dist<10&&e.attackTimer<=0&&e.type!=="demon"){
-        // Ranged attack
-        const spread=(Math.random()-0.5)*0.1;
+      }else if(dist>1.2&&dist<12&&e.attackTimer<=0&&e.type!=="demon"){
+        // Ranged attack - check line of sight
+        const losDx=dx/dist,losDy=dy/dist;
+        let blocked=false;
+        for(let s=0.5;s<dist;s+=0.5){
+          if(isWall(e.x+losDx*s,e.y+losDy*s)){blocked=true;break;}
+        }
+        if(!blocked){
+        const spread=(Math.random()-0.5)*0.15;
         projectiles.push({x:e.x,y:e.y,dx:Math.cos(toPlayer+spread)*0.06,dy:Math.sin(toPlayer+spread)*0.06,
           dmg:e.dmg,owner:"enemy",life:200,type:"enemy"});
         e.attackTimer=e.rate;
+        }
       }
       const spd=e.spd;const nx=e.x+Math.cos(toPlayer)*spd,ny=e.y+Math.sin(toPlayer)*spd;
       if(!isWall(nx,e.y))e.x=nx;if(!isWall(e.x,ny))e.y=ny;
+      const moved=Math.abs(e.x-nx)>0.001||Math.abs(e.y-ny)>0.001;
+      if(!moved){
+        const perp1=toPlayer+Math.PI/2,perp2=toPlayer-Math.PI/2;
+        const nx1=e.x+Math.cos(perp1)*spd,ny1=e.y+Math.sin(perp1)*spd;
+        const nx2=e.x+Math.cos(perp2)*spd,ny2=e.y+Math.sin(perp2)*spd;
+        if(!isWall(nx1,ny1)){e.x=nx1;e.y=ny1;}
+        else if(!isWall(nx2,ny2)){e.x=nx2;e.y=ny2;}
+      }
     }
   });
 }
 
-// Update doors
+// Update doors - FIXED: longer open time, don't close on player
 function updateDoors(){
   doors.forEach(d=>{
-    if(d.opening){d.open=Math.min(d.open+0.03,1);if(d.open>=1){d.opening=false;d.timer=180;}}
-    if(!d.opening&&d.open>0&&!d.locked){d.timer--;if(d.timer<=0){d.open=Math.max(d.open-0.03,0);}}
+    if(d.opening){d.open=Math.min(d.open+0.04,1);if(d.open>=1){d.opening=false;d.timer=600;}}
+    if(!d.opening&&d.open>0&&!d.locked){
+      d.timer--;
+      const playerInDoor=Math.floor(px)===d.x&&Math.floor(py)===d.y;
+      if(d.timer<=0&&!playerInDoor){d.open=Math.max(d.open-0.04,0);}
+      if(playerInDoor&&d.timer>0){d.timer=600;}
+    }
   });
 }
 
@@ -475,7 +528,24 @@ function updatePlayer(){
   if(radSuitTimer>0)radSuitTimer--;
   if(lightAmpTimer>0)lightAmpTimer--;
   if(shooting&&(WEAPONS[curWeap].auto||fireTimer<=0))fireWeapon();
+  if(doorUseRequested){doorUseRequested=false;tryOpenDoor();}
   checkItemPickup();
+  // Also check secrets by player proximity
+  const lv=LEVELS[level];
+  if(lv&&lv.secrets){
+    lv.secrets.forEach(s=>{
+      if(!s.found){
+        const sdx=px-(s.x+0.5),sdy=py-(s.y+0.5);
+        if(sdx*sdx+sdy*sdy<1.5){
+          s.found=true;
+          secretsFound++;
+          sndSecret();
+          pickupMsg="Secret found!";
+          pickupTimer=90;
+        }
+      }
+    });
+  }
   gameTime++;
   // Update particles
   particles=particles.filter(p=>{p.life--;if(p.vx){p.x+=p.vx;p.y+=p.vy;}return p.life>0;});
@@ -520,7 +590,7 @@ function renderScene(){
     const wallTop=(viewH-wallH)/2;
     const shade=Math.min(1,bright/(perpDist*0.3+0.5))*(side===0?1:0.7);
     const baseCol=wallColors[wallType]||"#888";
-    const r=parseInt(baseCol.slice(1,2),16)*17,g=parseInt(baseCol.slice(2,3),16)*17,b=parseInt(baseCol.slice(3,4),16)*17;
+    const r=parseInt(baseCol.slice(1,3),16)||0,g=parseInt(baseCol.slice(3,5),16)||0,b=parseInt(baseCol.slice(5,7),16)||0;
     ctx.fillStyle=`rgb(${Math.floor(r*shade)},${Math.floor(g*shade)},${Math.floor(b*shade)})`;
     ctx.fillRect(x,wallTop,1,wallH);
     // Simple texture lines
@@ -554,7 +624,7 @@ function renderSprites(){
   projectiles.forEach(p=>{
     const dx=p.x-px,dy=p.y-py;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    const col=p.type==="rocket"?"#f80":p.type==="plasma"?"#4af":"#fa0";
+    const col=p.type==="rocket"?"#f80":p.type==="plasma"?"#4af":p.type==="enemy"?"#f44":"#fa0";
     spriteList.push({x:p.x,y:p.y,dist:dist,color:col,size:0.2,isEnemy:false,dead:false});
   });
   // Particles
@@ -620,8 +690,13 @@ function renderMinimap(){
     const c=map[y][x];
     if(mapReveal||Math.abs(x-Math.floor(px))<6&&Math.abs(y-Math.floor(py))<6){
       if(c==="E")ctx.fillStyle="#0f0";
-      else if(c>=7&&c<=9)ctx.fillStyle=["","#f00","#00f","#ff0"][c-6];
-      else if(c>=6)ctx.fillStyle="#a80";
+      else if(c===7)ctx.fillStyle="#f00";
+      else if(c===8)ctx.fillStyle="#44f";
+      else if(c===9)ctx.fillStyle="#ff0";
+      else if(c===6){
+        const d=doors.find(d=>d.x===x&&d.y===y);
+        ctx.fillStyle=d&&d.open>0.5?"#0a0":"#a80";
+      }
       else if(c>0)ctx.fillStyle="#666";
       else ctx.fillStyle="#222";
       ctx.fillRect(ox+x*ms,oy+y*ms,ms,ms);
@@ -764,7 +839,7 @@ function renderCrosshair(){
   ctx.beginPath();ctx.moveTo(cx,cy+1);ctx.lineTo(cx,cy+4);ctx.stroke();
 }
 
-// Damage flash and pickup message
+// Damage flash, pickup message, and door prompt
 function renderEffects(){
   const viewH=H-60;
   if(damageFlash>0){ctx.fillStyle=`rgba(255,0,0,${damageFlash*0.06})`;ctx.fillRect(0,0,W,viewH);}
@@ -773,6 +848,30 @@ function renderEffects(){
   if(pickupTimer>0){
     ctx.fillStyle="#ff0";ctx.font="bold 9px monospace";
     ctx.textAlign="center";ctx.fillText(pickupMsg,W/2,viewH-10);ctx.textAlign="left";
+  }
+  // Door interaction prompt
+  if(gameState==="play"){
+    const ddx=Math.cos(pa),ddy=Math.sin(pa);
+    for(let s=0.5;s<2.5;s+=0.5){
+      const tx=Math.floor(px+ddx*s),ty=Math.floor(py+ddy*s);
+      if(tx<0||tx>=mapW||ty<0||ty>=mapH)break;
+      const cell=map[ty]&&map[ty][tx];
+      if(cell>=6&&cell<=9){
+        const d=doors.find(d=>d.x===tx&&d.y===ty);
+        if(d&&d.open<0.5){
+          const prompt=d.locked?"[E] Need "+d.locked+" key":"[E] Open door";
+          ctx.fillStyle="#ff0";ctx.font="bold 8px monospace";
+          ctx.textAlign="center";ctx.fillText(prompt,W/2,viewH-20);ctx.textAlign="left";
+        }
+        break;
+      }
+      if(cell==="E"){
+        ctx.fillStyle="#0f0";ctx.font="bold 8px monospace";
+        ctx.textAlign="center";ctx.fillText("[E] Exit",W/2,viewH-20);ctx.textAlign="left";
+        break;
+      }
+      if(cell>0&&cell<6)break;
+    }
   }
 }
 
@@ -953,7 +1052,16 @@ function nextLevel(){
 
 // Keyboard controls
 document.addEventListener("keydown",e=>{
-    if(gameState==="title"){if(e.key==="ArrowDown")menuSelection=(menuSelection+1)%3;if(e.key==="ArrowUp")menuSelection=(menuSelection+2)%3;if(e.key==="Enter"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}e.preventDefault();return;}
+    if(gameState==="title"){
+    if(e.key==="ArrowDown"||e.key==="PageDown")menuSelection=(menuSelection+1)%3;
+    if(e.key==="ArrowUp"||e.key==="PageUp")menuSelection=(menuSelection+2)%3;
+    if(e.key==="Enter"||e.key===" "){
+      if(menuSelection===0)startGame();
+      else if(menuSelection===1)gameState="settings";
+      else gameState="skins";
+    }
+    e.preventDefault();return;
+  }
     if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace")){gameState="title";e.preventDefault();return;}
   /* menu handles title keys */
   if(gameState==="dead"){startGame();return;}
@@ -967,7 +1075,7 @@ document.addEventListener("keydown",e=>{
   if(k==="arrowleft")turnR=-1;
   if(k==="arrowright")turnR=1;
   if(k===" "||k==="control")shooting=true;
-  if(k==="e"||k==="enter"){useBtn=true;tryOpenDoor();}
+  if(k==="e"||k==="enter"){doorUseRequested=true;}
   if(k==="q")switchWeapon(-1);
   if(k==="r")switchWeapon(1);
   if(k>="1"&&k<="6")selectWeapon(parseInt(k)-1);
@@ -979,28 +1087,30 @@ document.addEventListener("keyup",e=>{
   if(k==="a"||k==="d")moveS=0;
   if(k==="arrowleft"||k==="arrowright")turnR=0;
   if(k===" "||k==="control")shooting=false;
-  if(k==="e"||k==="enter")useBtn=false;
+
 });
+
+// Helper to get canvas coordinates from touch/mouse
+function getCanvasCoords(t){
+  const r=canvas.getBoundingClientRect();
+  return {x:(t.clientX-r.left)*(W/r.width),y:(t.clientY-r.top)*(H/r.height)};
+}
 
 // R1 Touch controls
 let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
-        // R1 TITLE MENU - tap on items or tap top/bottom half to navigate
-        if(gameState==="title"){
-          var tt=e.changedTouches?e.changedTouches[0]:e;
-          var ty2=tt.clientY||0;
-          lastInputDebug="touch y="+Math.round(ty2);
-          var scale=canvas.height/H;
-          var playY=140*scale,settY=155*scale,skinY=170*scale;
-          var margin=12*scale;
-          if(Math.abs(ty2-playY)<margin){menuSelection=0;lastInputDebug="tap PLAY";}
-          else if(Math.abs(ty2-settY)<margin){menuSelection=1;lastInputDebug="tap SETTINGS";}
-          else if(Math.abs(ty2-skinY)<margin){menuSelection=2;lastInputDebug="tap SKINS";}
-          else if(ty2<canvas.height*0.4){menuSelection=(menuSelection+2)%3;lastInputDebug="tap up";}
-          else{menuSelection=(menuSelection+1)%3;lastInputDebug="tap down";}
-          return;
-        }
+  // Title menu touch with proper coordinate scaling
+  if(gameState==="title"){
+    const c=getCanvasCoords(e.changedTouches[0]);
+    const playY=140,settY=155,skinY=170,margin=15;
+    if(Math.abs(c.y-playY)<margin)menuSelection=0;
+    else if(Math.abs(c.y-settY)<margin)menuSelection=1;
+    else if(Math.abs(c.y-skinY)<margin)menuSelection=2;
+    else if(c.y<H*0.4)menuSelection=(menuSelection+2)%3;
+    else menuSelection=(menuSelection+1)%3;
+    return;
+  }
   if(gameState!=="play"){
     if(gameState==="settings"||gameState==="skins")gameState="title";
     else if(gameState==="dead")startGame();
@@ -1009,21 +1119,26 @@ canvas.addEventListener("touchstart",e=>{
     return;
   }
   for(let t of e.changedTouches){
-    const tx=t.clientX,ty=t.clientY;
-    // Check SHOOT button (bottom-right, explosion icon)
+    const c=getCanvasCoords(t);
+    // Check SHOOT button (bottom-right)
     const shootBtnX=W-35,shootBtnY=H-45;
-    if(Math.sqrt((tx-shootBtnX)**2+(ty-shootBtnY)**2)<22){
+    if(Math.sqrt((c.x-shootBtnX)**2+(c.y-shootBtnY)**2)<22){
       shooting=true;shootBtnPressed=true;shootBtnAnim=1;continue;
     }
-    // Check SWITCH WEAPON button (above shoot button, recycling arrows icon)
+    // Check SWITCH WEAPON button
     const switchBtnX=W-35,switchBtnY=H-90;
-    if(Math.sqrt((tx-switchBtnX)**2+(ty-switchBtnY)**2)<18){
+    if(Math.sqrt((c.x-switchBtnX)**2+(c.y-switchBtnY)**2)<18){
       switchWeapon(1);switchBtnPressed=true;switchBtnAnim=1;continue;
     }
-    if(tx<W/2){// Left side - movement
-      touchL=t.identifier;touchStartL={x:tx,y:ty};
-    }else{// Right side - look/aim
-      touchR=t.identifier;touchStartR={x:tx,y:ty};
+    // Check USE/DOOR button
+    const useBtnX=W-35,useBtnY=H-135;
+    if(Math.sqrt((c.x-useBtnX)**2+(c.y-useBtnY)**2)<18){
+      doorUseRequested=true;continue;
+    }
+    if(c.x<W/2){
+      touchL=t.identifier;touchStartL=c;
+    }else{
+      touchR=t.identifier;touchStartR=c;
     }
   }
 },{passive:false});
@@ -1031,15 +1146,16 @@ canvas.addEventListener("touchstart",e=>{
 canvas.addEventListener("touchmove",e=>{
   e.preventDefault();
   for(let t of e.changedTouches){
+    const c=getCanvasCoords(t);
     if(t.identifier===touchL){
-      const dx=t.clientX-touchStartL.x,dy=t.clientY-touchStartL.y;
+      const dx=c.x-touchStartL.x,dy=c.y-touchStartL.y;
       moveF=Math.abs(dy)>10?(-dy/Math.abs(dy)):0;
       moveS=Math.abs(dx)>10?(dx/Math.abs(dx)):0;
     }
     if(t.identifier===touchR){
-      const dx=t.clientX-touchStartR.x;
+      const dx=c.x-touchStartR.x;
       turnR=Math.abs(dx)>5?(dx/Math.abs(dx)):0;
-      touchStartR={x:t.clientX,y:t.clientY};
+      touchStartR=c;
     }
   }
 },{passive:false});
@@ -1048,17 +1164,25 @@ canvas.addEventListener("touchend",e=>{
   e.preventDefault();
   for(let t of e.changedTouches){
     if(t.identifier===touchL){touchL=null;moveF=0;moveS=0;}
-    if(t.identifier===touchR){touchR=null;turnR=0;shooting=false;}
-      shootBtnPressed=false;switchBtnPressed=false;
+    if(t.identifier===touchR){touchR=null;turnR=0;}
+    shootBtnPressed=false;switchBtnPressed=false;
   }
 },{passive:false});
 
-// Double-tap right side for use/door
+// Double-tap for door use and title menu click
 let lastTapTime=0;
 canvas.addEventListener("click",e=>{
+  if(gameState==="title"){
+    const c=getCanvasCoords(e);
+    const playY=140,settY=155,skinY=170,margin=15;
+    if(Math.abs(c.y-playY)<margin){menuSelection=0;startGame();}
+    else if(Math.abs(c.y-settY)<margin){menuSelection=1;gameState="settings";}
+    else if(Math.abs(c.y-skinY)<margin){menuSelection=2;gameState="skins";}
+    return;
+  }
   if(gameState!=="play")return;
   const now=Date.now();
-  if(now-lastTapTime<300){tryOpenDoor();}
+  if(now-lastTapTime<300){doorUseRequested=true;}
   lastTapTime=now;
 });
 
@@ -1107,6 +1231,19 @@ function renderControls(){
   const ah2x=bx2+Math.cos(Math.PI*1.2+Math.PI)*7,ah2y=by2+Math.sin(Math.PI*1.2+Math.PI)*7;
   ctx.beginPath();ctx.moveTo(ah2x,ah2y);ctx.lineTo(ah2x-3,ah2y+2);ctx.lineTo(ah2x-1,ah2y-3);ctx.fill();
   ctx.restore();
+  // USE/DOOR button (door icon)
+  const bx3=W-35,by3=H-135,br3=14;
+  ctx.save();
+  ctx.globalAlpha=0.7;
+  ctx.fillStyle="#a62";
+  ctx.beginPath();ctx.arc(bx3,by3,br3,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle="#da4";ctx.lineWidth=1.5;ctx.stroke();
+  // Door icon
+  ctx.fillStyle="#fff";ctx.fillRect(bx3-5,by3-6,10,12);
+  ctx.fillStyle="#a62";ctx.fillRect(bx3-3,by3-4,6,8);
+  ctx.fillStyle="#ff0";ctx.fillRect(bx3+1,by3-1,2,2);
+  ctx.restore();
+
   // Movement indicator (bottom left)
   if(moveF!==0||moveS!==0){
     ctx.save();ctx.globalAlpha=0.4;
@@ -1132,14 +1269,14 @@ canvas.addEventListener("wheel",e=>{
 // R1 side button - always register (removed isR1 gate for reliability)
 {
   document.addEventListener("keydown",e=>{
-    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins"){gameState="title";}else if(gameState==="dead"){startGame();}else if(gameState==="levelEnd"){nextLevel();}else if(gameState==="victory"){level=1;score=0;startGame();}else if(gameState==="play"){useBtn=true;tryOpenDoor();}e.preventDefault();}
+    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins"){gameState="title";}else if(gameState==="dead"){startGame();}else if(gameState==="levelEnd"){nextLevel();}else if(gameState==="victory"){level=1;score=0;startGame();}else if(gameState==="play"){doorUseRequested=true;}e.preventDefault();}
   });
 }
 
 // Debug log for R1 input diagnosis
 let lastInputDebug="waiting for input...";
 // Document-level wheel listener (backup for R1 WebView)
-document.addEventListener("wheel",e=>{e.preventDefault();if(gameState==="title"){menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;lastInputDebug="wheel dY="+e.deltaY+" sel="+menuSelection;}else if(gameState==="play"){scrollAimAmount=e.deltaY*aimSensitivity*0.01;aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));}},{passive:false});
+document.addEventListener("wheel",e=>{e.preventDefault();if(gameState==="title"){menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;if(typeof lastInputDebug!=="undefined")lastInputDebug="wheel dY="+e.deltaY+" sel="+menuSelection;}else if(gameState==="play"){scrollAimAmount=e.deltaY*aimSensitivity*0.01;aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));}},{passive:false});
 // Log ALL keydown events for R1 diagnosis
 document.addEventListener("keydown",e=>{lastInputDebug="key="+e.key+" code="+e.code+" state="+gameState;});
 
@@ -1151,15 +1288,15 @@ var r1EvtLog=["scroll","pointerdown","pointermove","pointerup",
   "mousedown","mouseup","click","dblclick","contextmenu"];
 r1EvtLog.forEach(function(evtName){
   document.addEventListener(evtName,function(e){
-    lastInputDebug=evtName+" x="+(e.clientX||0)+" y="+(e.clientY||0);
+    if(typeof lastInputDebug!=="undefined")lastInputDebug=evtName+" x="+(e.clientX||0)+" y="+(e.clientY||0);
     if(gameState==="title"&&(evtName==="click"||evtName==="pointerdown"||evtName==="mousedown")){
-      var cy=e.clientY||0,scale=canvas.height/H;
-      var playY=140*scale,settY=155*scale,skinY=170*scale,margin=12*scale;
-      if(Math.abs(cy-playY)<margin){menuSelection=0;startGame();}
-      else if(Math.abs(cy-settY)<margin){menuSelection=1;gameState="settings";}
-      else if(Math.abs(cy-skinY)<margin){menuSelection=2;gameState="skins";}
-      else if(cy<canvas.height*0.4){menuSelection=(menuSelection+2)%3;}
-      else if(cy>canvas.height*0.6){menuSelection=(menuSelection+1)%3;}
+      const c=getCanvasCoords(e);
+      const playY=140,settY=155,skinY=170,margin=15;
+      if(Math.abs(c.y-playY)<margin){menuSelection=0;startGame();}
+      else if(Math.abs(c.y-settY)<margin){menuSelection=1;gameState="settings";}
+      else if(Math.abs(c.y-skinY)<margin){menuSelection=2;gameState="skins";}
+      else if(c.y<H*0.4){menuSelection=(menuSelection+2)%3;}
+      else if(c.y>H*0.6){menuSelection=(menuSelection+1)%3;}
     }
   },{passive:true});
 });
@@ -1167,14 +1304,14 @@ r1EvtLog.forEach(function(evtName){
 // Document-level touch for R1 WebView (backup)
 document.addEventListener("touchstart",function(e){
   var t=e.changedTouches?e.changedTouches[0]:e;
-  lastInputDebug="doc-touch y="+Math.round(t.clientY);
+  if(typeof lastInputDebug!=="undefined")lastInputDebug="doc-touch y="+Math.round(t.clientY);
   if(gameState==="title"){
-    var cy=t.clientY,scale=canvas.height/H;
-    var playY=140*scale,settY=155*scale,skinY=170*scale,margin=12*scale;
-    if(Math.abs(cy-playY)<margin){menuSelection=0;}
-    else if(Math.abs(cy-settY)<margin){menuSelection=1;}
-    else if(Math.abs(cy-skinY)<margin){menuSelection=2;}
-    else if(cy<canvas.height*0.4){menuSelection=(menuSelection+2)%3;}
+    const c=getCanvasCoords(t);
+    const playY=140,settY=155,skinY=170,margin=15;
+    if(Math.abs(c.y-playY)<margin){menuSelection=0;}
+    else if(Math.abs(c.y-settY)<margin){menuSelection=1;}
+    else if(Math.abs(c.y-skinY)<margin){menuSelection=2;}
+    else if(c.y<H*0.4){menuSelection=(menuSelection+2)%3;}
     else{menuSelection=(menuSelection+1)%3;}
   }
 },{passive:true});
@@ -1185,7 +1322,7 @@ document.addEventListener("touchend",function(e){
   if(gameState==="title"){
     var now=Date.now();
     if(now-titleLastTap<400){
-      lastInputDebug="dbl-tap sel="+menuSelection;
+      if(typeof lastInputDebug!=="undefined")lastInputDebug="dbl-tap sel="+menuSelection;
       if(menuSelection===0)startGame();
       else if(menuSelection===1)gameState="settings";
       else gameState="skins";
@@ -1196,7 +1333,7 @@ document.addEventListener("touchend",function(e){
 
 // Catch ALL keydown codes (R1 scroll wheel may send unusual keyCodes)
 document.addEventListener("keydown",function(e){
-  lastInputDebug="KEY "+e.key+" c="+e.code+" kc="+e.keyCode;
+  if(typeof lastInputDebug!=="undefined")lastInputDebug="KEY "+e.key+" c="+e.code+" kc="+e.keyCode;
   if(gameState==="title"){
     var k=e.key,kc=e.keyCode;
     if(k==="ArrowDown"||k==="Down"||kc===40||kc===34||k==="PageDown"||k==="VolumeDown"){menuSelection=(menuSelection+1)%3;e.preventDefault();}

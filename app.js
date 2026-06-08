@@ -54,13 +54,14 @@ function sndWeaponSwitch(){playSound(300,0.05,"square",0.1);}
 function sndExplosion(){playSound(40,0.4,"sawtooth",0.3);playSound(60,0.3,"square",0.2);}
 
 // Weapon definitions: name,damage,fireRate,ammoType,ammoCost,range,spread
+// fireRate: frames between shots (lower = faster). Auto weapons fire every N frames when held.
 const WEAPONS=[
-  {name:"Fist",dmg:10,rate:20,ammoType:null,cost:0,range:1.5,spread:0,auto:false},
-  {name:"Pistol",dmg:15,rate:12,ammoType:"bullet",cost:1,range:50,spread:0.02,auto:false},
-  {name:"Shotgun",dmg:70,rate:25,ammoType:"shell",cost:1,range:30,spread:0.08,auto:false},
-  {name:"Chaingun",dmg:15,rate:4,ammoType:"bullet",cost:1,range:50,spread:0.04,auto:true},
-  {name:"Rocket",dmg:100,rate:30,ammoType:"rocket",cost:1,range:50,spread:0,auto:false},
-  {name:"Plasma",dmg:25,rate:5,ammoType:"cell",cost:1,range:50,spread:0.02,auto:true}
+  {name:"Fist",dmg:10,rate:15,ammoType:null,cost:0,range:1.5,spread:0,auto:false},
+  {name:"Pistol",dmg:15,rate:10,ammoType:"bullet",cost:1,range:50,spread:0.02,auto:false},
+  {name:"Shotgun",dmg:70,rate:30,ammoType:"shell",cost:1,range:30,spread:0.08,auto:false},
+  {name:"Chaingun",dmg:15,rate:3,ammoType:"bullet",cost:1,range:50,spread:0.04,auto:true},
+  {name:"Rocket",dmg:100,rate:40,ammoType:"rocket",cost:1,range:50,spread:0,auto:false},
+  {name:"Plasma",dmg:25,rate:4,ammoType:"cell",cost:1,range:50,spread:0.02,auto:true}
 ];
 
 // Enemy types: name,hp,speed,damage,attackRate,score,sprite color
@@ -216,15 +217,22 @@ function loadLevel(n){
   map=lv.map.map(r=>r.split("").map(c=>c==="E"?"E":parseInt(c)||0));
   mapW=map[0].length;mapH=map.length;
   px=lv.spawn.x;py=lv.spawn.y;pa=lv.spawn.a;
-  pHealth=100;pArmor=0;pArmorType=0;curWeap=1;
-  hasWeap=[true,true,false,false,false,false];weapAnim=0;fireTimer=0;
-  hasKey={red:false,blue:false,yellow:false};
+  // Only reset weapons/keys/ammo on FIRST level load (new game)
+  if(n===1&&gameState!=="play"){
+    hasWeap=[true,true,false,false,false,false];
+    hasKey={red:false,blue:false,yellow:false};
+    ammo={bullet:50,shell:0,rocket:0,cell:0};
+    maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
+    hasBackpack=false;
+    berserkFistDmg=10;
+    totalKills=0;
+  }
+  // Always persist: pHealth carries over (DOOM style), but cap at 100 without bonus
+  if(n===1&&gameState!=="play"){pHealth=100;pArmor=0;pArmorType=0;}
+  curWeap=1;weapAnim=0;fireTimer=0;
   invulnTimer=0;berserkTimer=0;invisTimer=0;radSuitTimer=0;lightAmpTimer=0;mapReveal=false;
-  ammo={bullet:50,shell:0,rocket:0,cell:0};
-  maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
-  hasBackpack=false;damageFlash=0;pickupMsg="";pickupTimer=0;
+  damageFlash=0;pickupMsg="";pickupTimer=0;
   kills=0;itemsCollected=0;secretsFound=0;
-  berserkFistDmg=10;
   enemies=[];items=[];projectiles=[];doors=[];particles=[];
   totalEnemies=lv.enemies.length;totalItems=lv.items.length;totalSecrets=lv.secrets?lv.secrets.length:0;
   lv.enemies.forEach(e=>{
@@ -337,6 +345,8 @@ function checkItemPickup(){
       }else if(t.effect==="weapon"){
         if(!hasWeap[t.weapIdx]){hasWeap[t.weapIdx]=true;curWeap=t.weapIdx;picked=true;}
         if(t.ammoType&&ammo[t.ammoType]<maxAmmo[t.ammoType]){ammo[t.ammoType]=Math.min(ammo[t.ammoType]+t.val,maxAmmo[t.ammoType]);picked=true;}
+        // If already have weapon and full ammo, still mark picked so item disappears
+        if(hasWeap[t.weapIdx]&&t.ammoType&&ammo[t.ammoType]>=maxAmmo[t.ammoType])picked=true;
       }
       if(picked){it.picked=true;itemsCollected++;pickupMsg=t.name;pickupTimer=90;
         if(t.effect!=="key")sndPickup();
@@ -350,22 +360,23 @@ function checkItemPickup(){
   });
 }
 
-// Weapon switching
+// Weapon switching - always allow switching to unlocked weapons
 function switchWeapon(dir){
   let n=curWeap;
-  for(let i=0;i<6;i++){n=(n+dir+6)%6;if(hasWeap[n]){
-    const w=WEAPONS[n];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=n;sndWeaponSwitch();return;}
-  }}
+  for(let i=0;i<6;i++){n=(n+dir+6)%6;if(hasWeap[n]){curWeap=n;sndWeaponSwitch();return;}}
 }
-function selectWeapon(idx){if(hasWeap[idx]){const w=WEAPONS[idx];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=idx;sndWeaponSwitch();}}}
+function selectWeapon(idx){if(hasWeap[idx]){curWeap=idx;sndWeaponSwitch();}}
 
 // Fire weapon
 function fireWeapon(){
-  if(fireTimer>0||weapAnim>0)return;
   const w=WEAPONS[curWeap];
+  // Auto weapons: only blocked by fireTimer. Semi-auto: blocked by fireTimer AND weapAnim.
+  if(fireTimer>0)return;
+  if(!w.auto&&weapAnim>0)return;
   if(w.ammoType&&ammo[w.ammoType]<w.cost)return;
   if(w.ammoType)ammo[w.ammoType]-=w.cost;
-  fireTimer=w.rate;weapAnim=10;
+  fireTimer=w.rate;
+  if(!w.auto)weapAnim=10;
   if(curWeap===0){sndShoot();}
   else if(curWeap===2){sndShotgun();}
   else if(curWeap===4){sndRocket();}
@@ -511,8 +522,8 @@ function updateDoors(){
 
 // Player movement
 function updatePlayer(){
-  pa+=turnR*0.04;
-  const spd=0.05;
+  pa+=turnR*0.05;
+  const spd=0.06;
   const nx=px+Math.cos(pa)*moveF*spd-Math.sin(pa)*moveS*spd;
   const ny=py+Math.sin(pa)*moveF*spd+Math.cos(pa)*moveS*spd;
   if(canMove(nx,py))px=nx;
@@ -690,11 +701,15 @@ function renderMinimap(){
     const c=map[y][x];
     if(mapReveal||Math.abs(x-Math.floor(px))<6&&Math.abs(y-Math.floor(py))<6){
       if(c==="E")ctx.fillStyle="#0f0";
-      else if(c===7)ctx.fillStyle="#f00";
-      else if(c===8)ctx.fillStyle="#44f";
-      else if(c===9)ctx.fillStyle="#ff0";
+      else if(c>=7&&c<=9){
+        const d=doors.find(dd=>dd.x===x&&dd.y===y);
+        if(d&&d.locked===""){ctx.fillStyle=d.open>0.5?"#0a0":"#a80";}
+        else if(c===7)ctx.fillStyle="#f00";
+        else if(c===8)ctx.fillStyle="#44f";
+        else if(c===9)ctx.fillStyle="#ff0";
+      }
       else if(c===6){
-        const d=doors.find(d=>d.x===x&&d.y===y);
+        const d=doors.find(dd=>dd.x===x&&dd.y===y);
         ctx.fillStyle=d&&d.open>0.5?"#0a0":"#a80";
       }
       else if(c>0)ctx.fillStyle="#666";
@@ -798,6 +813,14 @@ function renderHUD(){
     ctx.fillStyle=i===curWeap?"#000":"#aaa";ctx.font="6px monospace";
     ctx.fillText((i+1)+"",191+i*8,hy+49);
   }
+
+  // Keycard display (bottom right of HUD)
+  const keyY=hy+56;
+  ctx.font="7px monospace";
+  if(hasKey.red){ctx.fillStyle="#f00";ctx.fillText("RED",165,keyY);}
+  if(hasKey.blue){ctx.fillStyle="#44f";ctx.fillText("BLU",185,keyY);}
+  if(hasKey.yellow){ctx.fillStyle="#ff0";ctx.fillText("YEL",205,keyY);}
+  if(!hasKey.red&&!hasKey.blue&&!hasKey.yellow){ctx.fillStyle="#444";ctx.font="6px monospace";ctx.fillText("NO KEYS",165,keyY);}
   
   // Keys display
   ctx.font="7px monospace";
@@ -1079,6 +1102,8 @@ document.addEventListener("keydown",e=>{
   if(k==="q")switchWeapon(-1);
   if(k==="r")switchWeapon(1);
   if(k>="1"&&k<="6")selectWeapon(parseInt(k)-1);
+  // Shift = run (faster movement)
+  if(e.key==="Shift"){moveF*=1.8;moveS*=1.8;}
   e.preventDefault();
 });
 document.addEventListener("keyup",e=>{
@@ -1096,11 +1121,10 @@ function getCanvasCoords(t){
   return {x:(t.clientX-r.left)*(W/r.width),y:(t.clientY-r.top)*(H/r.height)};
 }
 
-// R1 Touch controls
+// R1 Touch controls — virtual joystick style
 let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
-  // Title menu touch with proper coordinate scaling
   if(gameState==="title"){
     const c=getCanvasCoords(e.changedTouches[0]);
     const playY=140,settY=155,skinY=170,margin=15;
@@ -1135,10 +1159,11 @@ canvas.addEventListener("touchstart",e=>{
     if(Math.sqrt((c.x-useBtnX)**2+(c.y-useBtnY)**2)<18){
       doorUseRequested=true;continue;
     }
+    // Left half = movement joystick, right half = turn
     if(c.x<W/2){
-      touchL=t.identifier;touchStartL=c;
+      touchL=t.identifier;touchStartL={x:c.x,y:c.y};
     }else{
-      touchR=t.identifier;touchStartR=c;
+      touchR=t.identifier;touchStartR={x:c.x,y:c.y};
     }
   }
 },{passive:false});
@@ -1148,14 +1173,19 @@ canvas.addEventListener("touchmove",e=>{
   for(let t of e.changedTouches){
     const c=getCanvasCoords(t);
     if(t.identifier===touchL){
+      // Virtual joystick: delta from initial touch point
       const dx=c.x-touchStartL.x,dy=c.y-touchStartL.y;
-      moveF=Math.abs(dy)>10?(-dy/Math.abs(dy)):0;
-      moveS=Math.abs(dx)>10?(dx/Math.abs(dx)):0;
+      const deadZone=8;
+      moveF=Math.abs(dy)>deadZone?(-dy/Math.abs(dy)):0;
+      moveS=Math.abs(dx)>deadZone?(dx/Math.abs(dx)):0;
     }
     if(t.identifier===touchR){
+      // Relative turning: delta from last position
       const dx=c.x-touchStartR.x;
-      turnR=Math.abs(dx)>5?(dx/Math.abs(dx)):0;
-      touchStartR=c;
+      const deadZone=3;
+      turnR=Math.abs(dx)>deadZone?(dx/Math.abs(dx)):0;
+      // Reset reference point for smooth continuous turning
+      touchStartR={x:c.x,y:c.y};
     }
   }
 },{passive:false});

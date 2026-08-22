@@ -776,12 +776,12 @@ function renderSprites(){
     const dist=Math.sqrt(dx*dx+dy*dy);
     spriteList.push({x:it.x,y:it.y,dist:dist,color:it.color,size:0.4,isEnemy:false,dead:false});
   });
-  // Enemies
+  // Enemies - include type for exact DOOM sprite style
   enemies.forEach(e=>{
     const dx=e.x-px,dy=e.y-py;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    const sz=e.type==="caco"?0.7:e.type==="baron"?0.8:0.5;
-    spriteList.push({x:e.x,y:e.y,dist:dist,color:e.dead?"#400":e.color,size:sz,isEnemy:true,dead:e.dead,pain:e.pain,hp:e.hp,maxHp:e.maxHp});
+    const sz=e.type==="caco"?0.7:e.type==="baron"?0.8:e.type==="lost"?0.35:0.5;
+    spriteList.push({x:e.x,y:e.y,dist:dist,color:e.dead?"#400":e.color,size:sz,isEnemy:true,dead:e.dead,pain:e.pain,hp:e.hp,maxHp:e.maxHp,type:e.type});
   });
   // Projectiles
   projectiles.forEach(p=>{
@@ -821,13 +821,44 @@ function renderSprites(){
       ctx.fillStyle=`rgb(${Math.floor(r*shade)},${Math.floor(g*shade)},${Math.floor(b*shade)})`;
       if(s.dead&&s.isEnemy){ctx.fillRect(x,spriteTop+spriteH*0.6,1,spriteH*0.4);}
       else if(s.isEnemy){
+        const relX=(x-sx)/spriteW;
+        // Spectre translucent
+        if(s.type==="spectre") ctx.globalAlpha=0.32*shade;
+        // Base body
         ctx.fillRect(x,spriteTop,1,spriteH);
-        // Eyes
-        if(spriteH>15){const relX=(x-sx)/spriteW;
-          if((relX>0.3&&relX<0.4)||(relX>0.6&&relX<0.7)){
-            const ey=spriteTop+spriteH*0.25;
-            ctx.fillStyle=s.pain>0?"#f00":"#ff0";ctx.fillRect(x,ey,1,Math.max(2,spriteH*0.08));}
+        // Type-specific exact DOOM style details
+        if(s.type==="imp"){
+          // Horns top edges
+          if(spriteH>14 && ((relX>0.18&&relX<0.22)||(relX>0.78&&relX<0.82))){ ctx.fillStyle=shade>0.7?"#642":"#432"; ctx.fillRect(x,spriteTop+spriteH*0.05,1,spriteH*0.12); }
+          // Eyes
+          if(spriteH>15 && ((relX>0.31&&relX<0.38)||(relX>0.62&&relX<0.69))){ ctx.fillStyle=s.pain>0?"#f00":"#ff0"; ctx.fillRect(x,spriteTop+spriteH*0.24,1,Math.max(2,spriteH*0.09)); }
+          // Chest plate
+          if(relX>0.38&&relX<0.62){ ctx.fillStyle=`rgba(80,40,20,${0.45*shade})`; ctx.fillRect(x,spriteTop+spriteH*0.42,1,spriteH*0.18); }
+        } else if(s.type==="demon" || s.type==="spectre"){
+          if(spriteH>16 && ((relX>0.14&&relX<0.20)||(relX>0.80&&relX<0.86))){ ctx.fillStyle="#531"; ctx.fillRect(x,spriteTop+spriteH*0.03,1,spriteH*0.14); }
+          if(spriteH>15 && ((relX>0.30&&relX<0.38)||(relX>0.62&&relX<0.70))){ ctx.fillStyle=s.pain>0?"#f00":"#fa0"; ctx.fillRect(x,spriteTop+spriteH*0.22,1,spriteH*0.07); }
+          if(relX>0.35&&relX<0.65){ ctx.fillStyle="#200"; ctx.fillRect(x,spriteTop+spriteH*0.58,1,spriteH*0.10); if(relX>0.42&&relX<0.44||relX>0.56&&relX<0.58){ ctx.fillStyle="#fff"; ctx.fillRect(x,spriteTop+spriteH*0.60,1,spriteH*0.04); } }
+        } else if(s.type==="caco"){
+          if(relX>0.42&&relX<0.58){ // single central eye
+            const ey=spriteTop+spriteH*0.32; ctx.fillStyle=s.pain>0?"#f00":"#fff"; ctx.fillRect(x,ey,1,spriteH*0.14);
+            ctx.fillStyle="#00f"; ctx.fillRect(x,ey+spriteH*0.05,1,spriteH*0.05);
+          }
+          if(relX>0.30&&relX<0.70){ ctx.fillStyle="#400"; ctx.fillRect(x,spriteTop+spriteH*0.60,1,spriteH*0.08); if(relX>0.38&&relX<0.42||relX>0.58&&relX<0.62){ ctx.fillStyle="#fff"; ctx.fillRect(x,spriteTop+spriteH*0.62,1,spriteH*0.04); } }
+        } else if(s.type==="baron"){
+          if(spriteH>18 && ((relX>0.12&&relX<0.20)||(relX>0.80&&relX<0.88))){ ctx.fillStyle="#420"; ctx.fillRect(x,spriteTop+spriteH*0.02,1,spriteH*0.16); }
+          if(spriteH>15 && ((relX>0.28&&relX<0.37)||(relX>0.63&&relX<0.72))){ ctx.fillStyle=s.pain>0?"#f00":"#0f0"; ctx.fillRect(x,spriteTop+spriteH*0.23,1,spriteH*0.07); }
+          if(relX>0.45&&relX<0.55){ ctx.fillStyle="#200"; ctx.fillRect(x,spriteTop+spriteH*0.55,1,spriteH*0.12); }
+        } else if(s.type==="zombie"){
+          if(relX>0.25&&relX<0.75){ ctx.fillStyle="#444"; ctx.fillRect(x,spriteTop+spriteH*0.40,1,spriteH*0.25); }
+          if(spriteH>15 && ((relX>0.32&&relX<0.39)||(relX>0.61&&relX<0.68))){ ctx.fillStyle=s.pain>0?"#f00":"#fff"; ctx.fillRect(x,spriteTop+spriteH*0.20,1,spriteH*0.06); }
+        } else if(s.type==="lost"){
+          if(relX>0.30&&relX<0.70){ ctx.fillStyle="#db8"; ctx.fillRect(x,spriteTop+spriteH*0.28,1,spriteH*0.22); }
+          if(relX>0.38&&relX<0.45||relX>0.55&&relX<0.62){ ctx.fillStyle="#000"; ctx.fillRect(x,spriteTop+spriteH*0.35,1,spriteH*0.07); }
+          if(relX>0.42&&relX<0.58){ ctx.fillStyle="#400"; ctx.fillRect(x,spriteTop+spriteH*0.52,1,spriteH*0.05); }
+        } else { // generic eyes fallback
+          if(spriteH>15 && ((relX>0.3&&relX<0.4)||(relX>0.6&&relX<0.7))){ ctx.fillStyle=s.pain>0?"#f00":"#ff0"; ctx.fillRect(x,spriteTop+spriteH*0.25,1,Math.max(2,spriteH*0.08)); }
         }
+        if(s.type==="spectre") ctx.globalAlpha=1;
         // Health bar
         if(spriteH>10&&s.hp<s.maxHp){
           const bw=spriteW*0.8,bx=screenX-bw/2,by=spriteTop-6;

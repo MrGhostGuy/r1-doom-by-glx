@@ -17,6 +17,38 @@ let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,faceP
 let enemies=[],items=[],projectiles=[],doors=[],particles=[];
 let moveF=0,moveS=0,turnR=0,shooting=false,useBtn=false;
 let doorErrorTimer=0,doorErrorMsg="";
+// Save/Continue + Autosave (QoL)
+const SAVE_KEY="doom_r1_save_v3";
+let autoSaveTimer=0; const AUTO_SAVE_INTERVAL=10800; // ~3 min at 60fps (180*60)
+let pauseCursor=0; let saveFlashTimer=0; let saveFlashMsg="";
+function hasSave(){ try{ return !!localStorage.getItem(SAVE_KEY);}catch(e){return false;}}
+function saveGame(manual){
+  try{
+    const data={level,score,px,py,pa,pHealth,pArmor,pArmorType,hasWeap:[...hasWeap],hasKey:{...hasKey},ammo:{...ammo},maxAmmo:{...maxAmmo},hasBackpack,kills,itemsCollected,secretsFound,gameTime};
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    saveFlashMsg= manual?"GAME SAVED!":"AUTOSAVED!"; saveFlashTimer=90;
+    return true;
+  }catch(e){ saveFlashMsg="SAVE FAILED"; saveFlashTimer=60; return false; }
+}
+function loadGame(){
+  try{
+    const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false;
+    const d=JSON.parse(raw);
+    loadLevel(d.level||1);
+    level=d.level||1; score=d.score||0; px=d.px||3.5; py=d.py||3.5; pa=d.pa||0;
+    pHealth=d.pHealth||100; pArmor=d.pArmor||0; pArmorType=d.pArmorType||0;
+    hasWeap=d.hasWeap||[true,true,false,false,false,false,false,false];
+    hasKey=d.hasKey||{red:false,blue:false,yellow:false};
+    ammo=d.ammo||{bullet:50,shell:0,rocket:0,cell:0};
+    maxAmmo=d.maxAmmo||{bullet:200,shell:50,rocket:50,cell:300};
+    hasBackpack=!!d.hasBackpack; kills=d.kills||0; itemsCollected=d.itemsCollected||0; secretsFound=d.secretsFound||0; gameTime=d.gameTime||0;
+    // Re-apply hasWeap curWeap to first owned
+    curWeap=hasWeap.findIndex((v,i)=>v && (!WEAPONS[i].ammoType || ammo[WEAPONS[i].ammoType]>0)); if(curWeap<0) curWeap=1;
+    return true;
+  }catch(e){ return false; }
+}
+function deleteSave(){ try{ localStorage.removeItem(SAVE_KEY);}catch(e){} }
+window.hasDoomSave=hasSave;
 
 // Audio context for sound effects
 let audioCtx=null;
@@ -675,6 +707,9 @@ function updatePlayer(){
   if(shooting&&(WEAPONS[curWeap].auto||fireTimer<=0))fireWeapon();
   checkItemPickup();
   gameTime++;
+  // Autosave every 3 min + save flash timer
+  autoSaveTimer++; if(autoSaveTimer>=AUTO_SAVE_INTERVAL){ autoSaveTimer=0; if(gameState==="play") saveGame(false); }
+  if(saveFlashTimer>0) saveFlashTimer--;
   // Update particles
   particles=particles.filter(p=>{p.life--;if(p.vx){p.x+=p.vx;p.y+=p.vy;}return p.life>0;});
 }
@@ -992,15 +1027,25 @@ function renderTitle(){
   // Subtitle
   ctx.fillStyle="#ff0";ctx.font="bold 12px monospace";
   ctx.fillText("by GLX",W/2,105);
-  // Menu
-  ctx.fillStyle="#fff";ctx.font="10px monospace";
-  ctx.fillText("NEW GAME",W/2,150);
-  ctx.fillStyle="#888";ctx.font="9px monospace";
-  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,170);
-  // Flashing start text
-  if(Math.floor(gameTime/30)%2===0){
-    ctx.fillStyle="#ff0";ctx.font="bold 10px monospace";
-    ctx.fillText("PRESS ANY KEY / TAP",W/2,200);
+  // Menu - New Game / Continue Game (if save exists) - scroll wheel cycles
+  const hs=hasSave(); const opts= hs? ["NEW GAME","CONTINUE GAME"] : ["NEW GAME"];
+  // Ensure cursor in bounds
+  if(pauseCursor>=opts.length) pauseCursor=0;
+  if(pauseCursor<0) pauseCursor=opts.length-1;
+  for(let i=0;i<opts.length;i++){
+    const sel=i===pauseCursor;
+    ctx.fillStyle=sel?"#ff0":"#888"; ctx.font=sel?"bold 11px monospace":"10px monospace";
+    const y=148+i*18;
+    if(sel){ ctx.fillText("▶ "+opts[i]+" ◀",W/2,y); } else ctx.fillText(opts[i],W/2,y);
+  }
+  ctx.fillStyle="#666";ctx.font="7px monospace";
+  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,185);
+  // Hint
+  ctx.fillStyle="#555";ctx.font="7px monospace";
+  ctx.fillText("Scroll: change option/level  •  Fire/Side: select",W/2,200);
+  if(hs){
+    const pct=Math.floor(gameTime/30)%2===0;
+    if(pct){ ctx.fillStyle="#0f0";ctx.font="7px monospace"; ctx.fillText("SAVE FOUND - CONTINUE AVAILABLE",W/2,212); }
   }
   // Credits
   ctx.fillStyle="#f80";ctx.font="bold 9px monospace";
@@ -1102,6 +1147,11 @@ function gameLoop(){
     updatePlayer();updateEnemies();updateProjectiles();updateDoors();
     renderScene();renderSprites();renderWeapon();renderCrosshair();
     renderEffects();renderMinimap();renderHUD();
+    if(saveFlashTimer>0){ ctx.fillStyle="#0f0"; ctx.font="bold 9px monospace"; ctx.textAlign="center"; ctx.fillText(saveFlashMsg,W/2,30); ctx.textAlign="left"; }
+  }else if(gameState==="pause"){
+    renderScene();renderSprites();renderWeapon();renderMinimap();renderHUD(); renderPause();
+    if(saveFlashTimer>0){ ctx.fillStyle="#0f0"; ctx.font="bold 9px monospace"; ctx.textAlign="center"; ctx.fillText(saveFlashMsg,W/2,30); ctx.textAlign="left"; }
+    gameTime++;
   }else if(gameState==="dead"){
     renderScene();renderSprites();renderHUD();renderGameOver();
   }else if(gameState==="levelEnd"){
@@ -1112,10 +1162,21 @@ function gameLoop(){
   requestAnimationFrame(gameLoop);
 }
 
+function doTitleSelect(){
+  const hs=hasSave();
+  if(hs && pauseCursor===1){
+    initAudio();
+    if(loadGame()){ gameState="play"; } else { startGame(); }
+  } else {
+    startGame();
+  }
+}
 // Start game
 function startGame(){
-  initAudio();level=1;score=0;kills=0;
+  initAudio();score=0;kills=0;
+  // level already set by title menu scroll, keep it
   loadLevel(level);gameState="play";
+  autoSaveTimer=0;
 }
 
 // Next level or victory
@@ -1126,7 +1187,21 @@ function nextLevel(){
 
 // Keyboard controls
 document.addEventListener("keydown",e=>{
-  if(gameState==="title"){startGame();return;}
+  if(gameState==="title"){
+    const hs=hasSave(); const max=hs?1:0;
+    if(e.key==="ArrowUp"||e.key.toLowerCase()==="w"){ pauseCursor=(pauseCursor-1+max+1)%(max+1); e.preventDefault(); return; }
+    if(e.key==="ArrowDown"||e.key.toLowerCase()==="s"){ pauseCursor=(pauseCursor+1)%(max+1); e.preventDefault(); return; }
+    if(e.key==="Enter"||e.key===" "||e.key==="Control"){ doTitleSelect(); e.preventDefault(); return; }
+    if(e.key==="Escape" && hs){ pauseCursor=1; doTitleSelect(); return; }
+  }
+  if(gameState==="pause"){
+    if(e.key==="ArrowUp"||e.key.toLowerCase()==="w"){ pauseCursor=(pauseCursor-1+3)%3; e.preventDefault(); return; }
+    if(e.key==="ArrowDown"||e.key.toLowerCase()==="s"){ pauseCursor=(pauseCursor+1)%3; e.preventDefault(); return; }
+    if(e.key==="Enter"||e.key===" "||e.key==="Control"){ handlePauseSelect(); e.preventDefault(); return; }
+    if(e.key==="Escape"||e.key.toLowerCase()==="p"){ gameState="play"; e.preventDefault(); return; }
+  }
+  // Enter pause from play (QoL)
+  if(gameState==="play" && (e.key==="Escape" || e.key.toLowerCase()==="p")){ gameState="pause"; pauseCursor=0; e.preventDefault(); return; }
   if(gameState==="dead"){startGame();return;}
   if(gameState==="levelEnd"){nextLevel();return;}
   if(gameState==="victory"){level=1;score=0;startGame();return;}
@@ -1158,7 +1233,8 @@ let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
   if(gameState!=="play"){
-    if(gameState==="title")startGame();
+    if(gameState==="title"){ doTitleSelect(); return; }
+    if(gameState==="pause"){ handlePauseSelect(); return; }
     else if(gameState==="dead")startGame();
     else if(gameState==="levelEnd")nextLevel();
     else if(gameState==="victory"){level=1;score=0;startGame();}
@@ -1201,18 +1277,24 @@ canvas.addEventListener("touchend",e=>{
 // Double-tap right side for use/door
 let lastTapTime=0;
 canvas.addEventListener("click",e=>{
+  if(gameState==="pause"){ handlePauseSelect(); return; }
+  if(gameState==="title"){ doTitleSelect(); return; }
+  if(gameState==="levelEnd"){ nextLevel(); return; }
+  if(gameState==="dead"||gameState==="victory"){ startGame(); return; }
   if(gameState!=="play")return;
   const now=Date.now();
   if(now-lastTapTime<300){tryOpenDoor();}
   lastTapTime=now;
 });
 
-// R1 scroll wheel for weapon switching + menu cycling
+// R1 scroll wheel for weapon switching + menu cycling (title + pause)
 canvas.addEventListener("wheel",e=>{
   e.preventDefault();
   if(gameState==="play"){switchWeapon(e.deltaY>0?1:-1);}
-  else if(gameState==="title"){level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1)));}
-  else if(gameState==="levelEnd"){/* wheel cycles not needed, tap to next */ }
+  else if(gameState==="title"){ const hs=hasSave(); const max=hs?1:0; if(e.deltaY!==0){ // wheel cycles menu if save exists, else cycles level
+      if(Math.abs(e.deltaY)>0 && hs){ pauseCursor=(pauseCursor+(e.deltaY>0?1:-1)+max+1)%(max+1); } else { level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1))); }
+    }}
+  else if(gameState==="pause"){ pauseCursor=(pauseCursor+(e.deltaY>0?1:-1)+3)%3; }
 },{passive:false});
 // Also global wheel for R1 hardware (document)
 document.addEventListener("wheel",e=>{
@@ -1234,6 +1316,10 @@ function handleReload(){
 if(isR1){
   document.addEventListener("keydown",e=>{
     if(e.key==="F5"||e.key==="F6"){
+      if(gameState==="pause"){ handlePauseSelect(); e.preventDefault(); return; }
+      if(gameState==="title"){ doTitleSelect(); e.preventDefault(); return; }
+      if(gameState==="levelEnd"){ nextLevel(); e.preventDefault(); return; }
+      if(gameState==="dead"||gameState==="victory"){ startGame(); e.preventDefault(); return; }
       // Try door first, if not near door then reload
       const hadDoor=doors.some(d=>Math.hypot(d.x-px,d.y-py)<1.8 && d.locked);
       tryOpenDoor();
@@ -1255,17 +1341,26 @@ document.addEventListener("keydown",e=>{
   const fire=document.getElementById('fire-btn');
   if(!left||!right||!fire) return;
   function bindDir(btn, dir){
-    const set=()=>{ if(dir==="up") moveF=1; else if(dir==="down") moveF=-1; else if(dir==="left") moveS=-1; else if(dir==="right") moveS=1; };
-    const clr=()=>{ moveF=0; moveS=0; };
+    const set=()=>{
+      if(gameState==="pause"){ if(dir==="up") pauseCursor=(pauseCursor-1+3)%3; else if(dir==="down") pauseCursor=(pauseCursor+1)%3; return; }
+      if(gameState==="title"){ const hs=hasSave(); const max=hs?1:0; if(dir==="up") pauseCursor=(pauseCursor-1+max+1)%(max+1); else if(dir==="down") pauseCursor=(pauseCursor+1)%(max+1); else if(dir==="left") level=Math.max(1,level-1); else if(dir==="right") level=Math.min(maxLevel,level+1); return; }
+      if(dir==="up") moveF=1; else if(dir==="down") moveF=-1; else if(dir==="left") moveS=-1; else if(dir==="right") moveS=1;
+    };
+    const clr=()=>{ if(gameState==="play"){ moveF=0; moveS=0; } };
     btn.addEventListener('touchstart',e=>{ e.preventDefault(); set(); },{passive:false});
     btn.addEventListener('touchend',e=>{ e.preventDefault(); clr(); },{passive:false});
     btn.addEventListener('mousedown',e=>{ e.preventDefault(); set(); });
     btn.addEventListener('mouseup',e=>{ e.preventDefault(); clr(); });
     btn.addEventListener('mouseleave',clr);
+    btn.addEventListener('click',e=>{ e.preventDefault(); if(gameState==="pause"||gameState==="title") set(); });
   }
   function bindAim(btn, aim){
-    const set=()=>{ turnR=aim==="left"?-1:1; };
-    const clr=()=>{ turnR=0; };
+    const set=()=>{
+      if(gameState==="pause"){ if(aim==="left") pauseCursor=(pauseCursor-1+3)%3; else pauseCursor=(pauseCursor+1)%3; return; }
+      if(gameState==="title"){ const hs=hasSave(); const max=hs?1:0; if(aim==="left") pauseCursor=(pauseCursor-1+max+1)%(max+1); else pauseCursor=(pauseCursor+1)%(max+1); return; }
+      turnR=aim==="left"?-1:1;
+    };
+    const clr=()=>{ if(gameState==="play") turnR=0; };
     btn.addEventListener('touchstart',e=>{ e.preventDefault(); set(); },{passive:false});
     btn.addEventListener('touchend',e=>{ e.preventDefault(); clr(); },{passive:false});
     btn.addEventListener('mousedown',e=>{ e.preventDefault(); set(); });
@@ -1275,14 +1370,48 @@ document.addEventListener("keydown",e=>{
   left.querySelectorAll('button[data-dir]').forEach(b=>bindDir(b,b.dataset.dir));
   right.querySelectorAll('button[data-aim]').forEach(b=>bindAim(b,b.dataset.aim));
   // Fire button - circular with gun icon, only shoot while pressed
-  const startFire=e=>{ e.preventDefault(); if(gameState==="play") shooting=true; else if(gameState==="title") startGame(); else if(gameState==="levelEnd") nextLevel(); else if(gameState==="dead"||gameState==="victory") startGame(); };
+  const startFire=e=>{ e.preventDefault(); if(gameState==="play") shooting=true; else if(gameState==="pause") handlePauseSelect(); else if(gameState==="title") doTitleSelect(); else if(gameState==="levelEnd") nextLevel(); else if(gameState==="dead"||gameState==="victory") startGame(); };
   const stopFire=e=>{ e.preventDefault(); shooting=false; };
   fire.addEventListener('touchstart',startFire,{passive:false});
   fire.addEventListener('touchend',stopFire,{passive:false});
   fire.addEventListener('mousedown',startFire);
   fire.addEventListener('mouseup',stopFire);
   fire.addEventListener('mouseleave',stopFire);
+  // Pause button
+  const pbtn=document.getElementById('pause-btn');
+  if(pbtn){
+    const togglePause=()=>{ if(gameState==="play"){ gameState="pause"; pauseCursor=0; } else if(gameState==="pause"){ gameState="play"; } };
+    pbtn.addEventListener('click',e=>{ e.preventDefault(); togglePause(); });
+    pbtn.addEventListener('touchstart',e=>{ e.preventDefault(); togglePause(); },{passive:false});
+  }
 })();
+// Pause menu helpers
+function handlePauseSelect(){
+  if(pauseCursor===0){ gameState="play"; }
+  else if(pauseCursor===1){ saveGame(true); gameState="play"; }
+  else if(pauseCursor===2){ if(confirm("Quit to title? Progress saved.")){ saveGame(true); gameState="title"; pauseCursor=0; } }
+}
+function renderPause(){
+  ctx.fillStyle="rgba(0,0,0,0.65)"; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#222"; ctx.fillRect(20,50,200,160);
+  ctx.strokeStyle="#555"; ctx.strokeRect(20,50,200,160);
+  ctx.textAlign="center";
+  ctx.fillStyle="#ff0"; ctx.font="bold 12px monospace"; ctx.fillText("PAUSED",W/2,78);
+  const opts=["RESUME","SAVE GAME","QUIT TO TITLE"];
+  for(let i=0;i<3;i++){
+    const sel=i===pauseCursor;
+    ctx.fillStyle=sel?"#ff0":"#aaa"; ctx.font=sel?"bold 10px monospace":"9px monospace";
+    const y=100+i*22;
+    if(sel) ctx.fillText("▶ "+opts[i]+" ◀",W/2,y); else ctx.fillText(opts[i],W/2,y);
+  }
+  ctx.fillStyle="#888"; ctx.font="7px monospace";
+  ctx.fillText("Kills "+kills+"/"+totalEnemies+"  Items "+itemsCollected+"/"+totalItems,W/2,170);
+  ctx.fillText("Secrets "+secretsFound+"/"+totalSecrets+"  Level "+level,W/2,180);
+  if(saveFlashTimer>0){ ctx.fillStyle="#0f0"; ctx.font="bold 8px monospace"; ctx.fillText(saveFlashMsg,W/2,195); }
+  ctx.fillStyle="#556"; ctx.font="7px monospace";
+  ctx.fillText("Scroll: navigate  •  Fire/Side: select  •  Pause: resume",W/2,205);
+  ctx.textAlign="left";
+}
 
 // Initialize
 loadLevel(1);

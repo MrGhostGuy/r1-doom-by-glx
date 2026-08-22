@@ -5,33 +5,23 @@ const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 canvas.width=W;canvas.height=H;
 const isR1=typeof PluginMessageHandler!=="undefined";
-let gameState="title",level=1,maxLevel=3,score=0,gameTime=0;
+let gameState="title",level=1,maxLevel=9,score=0,gameTime=0,lastTime=0;
 let kills=0,totalEnemies=0,itemsCollected=0,totalItems=0,secretsFound=0,totalSecrets=0;
 let px=3.5,py=3.5,pa=0,pHealth=100,pMaxHealth=100,pArmor=0,pArmorType=0;
-let curWeap=1,hasWeap=[true,true,false,false,false,false],weapAnim=0,fireTimer=0;
+let curWeap=1,hasWeap=[true,true,false,false,false,false,false,false],weapAnim=0,fireTimer=0;
 let hasKey={red:false,blue:false,yellow:false};
 let invulnTimer=0,berserkTimer=0,invisTimer=0,radSuitTimer=0,lightAmpTimer=0,mapReveal=false;
 let ammo={bullet:50,shell:0,rocket:0,cell:0};
 let maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
-let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,facePain=0,faceKillGrin=0,activeFaceIdx=0,totalKills=0,audioOn=1,menuSelection=0;
+let hasBackpack=false,damageFlash=0,pickupMsg="",pickupTimer=0,faceFrame=0,facePain=0;
 let enemies=[],items=[],projectiles=[],doors=[],particles=[];
 let moveF=0,moveS=0,turnR=0,shooting=false,useBtn=false;
-let aimOffsetY=0,aimSensitivity=3,scrollAimAmount=0;
-let hitFlashTimer=0;
-let shootBtnPressed=false,switchBtnPressed=false;
-let shootBtnAnim=0,switchBtnAnim=0;
-let screenShakeTimer=0,screenShakeIntensity=0;
-let doorUseRequested=false;
-let berserkFistDmg=10;
-
-
-
+let doorErrorTimer=0,doorErrorMsg="";
 
 // Audio context for sound effects
 let audioCtx=null;
-function initAudio(){if(!audioOn)return;try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
+function initAudio(){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
 function playSound(freq,dur,type,vol){
-  if(!audioOn)return;
   if(!audioCtx)return;try{
   const o=audioCtx.createOscillator(),g=audioCtx.createGain();
   o.type=type||"square";o.frequency.setValueAtTime(freq,audioCtx.currentTime);
@@ -45,23 +35,26 @@ function sndRocket(){playSound(60,0.3,"sawtooth",0.3);}
 function sndPlasma(){playSound(800,0.08,"sine",0.15);}
 function sndPickup(){playSound(600,0.1,"sine",0.15);setTimeout(()=>playSound(900,0.1,"sine",0.15),100);}
 function sndDoor(){playSound(100,0.3,"square",0.1);}
-function sndDoorClosed(){playSound(60,0.15,"square",0.15);}
 function sndHurt(){playSound(150,0.15,"sawtooth",0.2);}
 function sndDeath(){playSound(80,0.4,"sawtooth",0.25);}
 function sndKey(){playSound(500,0.15,"sine",0.2);setTimeout(()=>playSound(700,0.15,"sine",0.2),150);}
 function sndSecret(){playSound(400,0.1,"sine",0.15);setTimeout(()=>playSound(600,0.1,"sine",0.15),100);setTimeout(()=>playSound(800,0.15,"sine",0.2),200);}
+function sndChainsaw(){playSound(120,0.08,"sawtooth",0.25);}
+function sndBFG(){playSound(30,0.5,"sawtooth",0.35);setTimeout(()=>playSound(50,0.4,"square",0.3),80);}
 function sndWeaponSwitch(){playSound(300,0.05,"square",0.1);}
+function sndError(){playSound(200,0.15,"square",0.2);setTimeout(()=>playSound(150,0.15,"square",0.2),120);}
 function sndExplosion(){playSound(40,0.4,"sawtooth",0.3);playSound(60,0.3,"square",0.2);}
 
 // Weapon definitions: name,damage,fireRate,ammoType,ammoCost,range,spread
-// fireRate: frames between shots (lower = faster). Auto weapons fire every N frames when held.
 const WEAPONS=[
-  {name:"Fist",dmg:10,rate:15,ammoType:null,cost:0,range:1.5,spread:0,auto:false},
-  {name:"Pistol",dmg:15,rate:10,ammoType:"bullet",cost:1,range:50,spread:0.02,auto:false},
-  {name:"Shotgun",dmg:70,rate:30,ammoType:"shell",cost:1,range:30,spread:0.08,auto:false},
-  {name:"Chaingun",dmg:15,rate:3,ammoType:"bullet",cost:1,range:50,spread:0.04,auto:true},
-  {name:"Rocket",dmg:100,rate:40,ammoType:"rocket",cost:1,range:50,spread:0,auto:false},
-  {name:"Plasma",dmg:25,rate:4,ammoType:"cell",cost:1,range:50,spread:0.02,auto:true}
+  {name:"Fist",dmg:10,rate:20,ammoType:null,cost:0,range:1.5,spread:0,auto:false},
+  {name:"Pistol",dmg:15,rate:12,ammoType:"bullet",cost:1,range:50,spread:0.02,auto:false},
+  {name:"Shotgun",dmg:70,rate:25,ammoType:"shell",cost:1,range:30,spread:0.08,auto:false},
+  {name:"Chaingun",dmg:15,rate:4,ammoType:"bullet",cost:1,range:50,spread:0.04,auto:true},
+  {name:"Rocket",dmg:100,rate:30,ammoType:"rocket",cost:1,range:50,spread:0,auto:false},
+  {name:"Plasma",dmg:25,rate:5,ammoType:"cell",cost:1,range:50,spread:0.02,auto:true},
+  {name:"Chainsaw",dmg:35,rate:6,ammoType:null,cost:0,range:1.6,spread:0,auto:true},
+  {name:"BFG",dmg:200,rate:40,ammoType:"cell",cost:40,range:50,spread:0.12,auto:false}
 ];
 
 // Enemy types: name,hp,speed,damage,attackRate,score,sprite color
@@ -69,8 +62,10 @@ const ENEMY_TYPES={
   zombie:{name:"Zombie",hp:20,spd:0.015,dmg:8,rate:40,score:50,color:"#4a4"},
   imp:{name:"Imp",hp:60,spd:0.02,dmg:12,rate:50,score:100,color:"#a64"},
   demon:{name:"Demon",hp:150,spd:0.03,dmg:25,rate:30,score:200,color:"#a44"},
+  spectre:{name:"Spectre",hp:150,spd:0.035,dmg:22,rate:32,score:250,color:"#646"},
   caco:{name:"Cacodemon",hp:400,spd:0.018,dmg:20,rate:60,score:400,color:"#a33"},
-  baron:{name:"Baron",hp:1000,spd:0.015,dmg:40,rate:70,score:1000,color:"#633"}
+  baron:{name:"Baron",hp:1000,spd:0.015,dmg:40,rate:70,score:1000,color:"#633"},
+  lost:{name:"Lost Soul",hp:80,spd:0.04,dmg:10,rate:35,score:150,color:"#aa6"}
 };
 
 // Item types
@@ -99,13 +94,12 @@ const ITEM_TYPES={
   shotgunPickup:{name:"Shotgun",color:"#a80",effect:"weapon",weapIdx:2,ammoType:"shell",val:8},
   chaingunPickup:{name:"Chaingun",color:"#aa0",effect:"weapon",weapIdx:3,ammoType:"bullet",val:20},
   rocketPickup:{name:"Rocket Launcher",color:"#800",effect:"weapon",weapIdx:4,ammoType:"rocket",val:2},
-  plasmaPickup:{name:"Plasma Gun",color:"#088",effect:"weapon",weapIdx:5,ammoType:"cell",val:40}
+  plasmaPickup:{name:"Plasma Gun",color:"#088",effect:"weapon",weapIdx:5,ammoType:"cell",val:40},
+  chainsawPickup:{name:"Chainsaw",color:"#666",effect:"weapon",weapIdx:6,ammoType:null,val:0},
+  bfgPickup:{name:"BFG9000",color:"#0a0",effect:"weapon",weapIdx:7,ammoType:"cell",val:40}
 };
 
 // Level maps - 0=empty,1-5=walls,6=door,7=locked red,8=locked blue,9=locked yellow,E=exit
-
-const FACE_TYPES=[{name:"Marine",color:"#c90",eye:"#000",unlock:0},{name:"Robot",color:"#aaa",eye:"#f00",unlock:10},{name:"Alien",color:"#0a0",eye:"#ff0",unlock:25},{name:"Zombie",color:"#686",eye:"#f80",unlock:50},{name:"Cyborg",color:"#68a",eye:"#0ff",unlock:75},{name:"Demon",color:"#a00",eye:"#ff0",unlock:100}];
-function isFaceUnlocked(i){return totalKills>=FACE_TYPES[i].unlock;}
 const LEVELS=[null,
   {name:"Hangar",map:[
     "1111111111111111",
@@ -191,7 +185,7 @@ const LEVELS=[null,
     "3333333333333333"
   ],spawn:{x:1.5,y:1.5,a:0},
   enemies:[
-    {type:"imp",x:5.5,y:2.5},{type:"imp",x:9.5,y:1.5},
+    {type:"imp",x:5.5,y:1.5},{type:"imp",x:9.5,y:1.5},
     {type:"demon",x:12.5,y:2.5},{type:"caco",x:3.5,y:6.5},
     {type:"demon",x:10.5,y:6.5},{type:"imp",x:1.5,y:11.5},
     {type:"caco",x:7.5,y:11.5},{type:"baron",x:12.5,y:13.5},
@@ -207,7 +201,204 @@ const LEVELS=[null,
     {type:"backpack",x:7.5,y:13.5},{type:"lightAmp",x:1.5,y:14.5},
     {type:"compMap",x:13.5,y:14.5},{type:"radsuit",x:7.5,y:8.5},
     {type:"invis",x:4.5,y:8.5}
-  ],secrets:[{x:1,y:14},{x:13,y:14},{x:7,y:8}]}
+  ],secrets:[{x:1,y:14},{x:13,y:14},{x:7,y:8}]},
+  {name:"Command Control",map:[
+    "4444444444444444",
+    "4000040000400004",
+    "4000040000400004",
+    "4000064000640004",
+    "4000040000400004",
+    "4444044444044444",
+    "4000000000000004",
+    "4000000000000004",
+    "4000070000800004",
+    "4000040000400004",
+    "4044444444444404",
+    "4000000000000004",
+    "4000000000000004",
+    "400000000000E004",
+    "4000000000000004",
+    "4444444444444444"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"zombie",x:5.5,y:1.5},{type:"imp",x:9.5,y:2.5},
+    {type:"demon",x:12.5,y:6.5},{type:"spectre",x:6.5,y:7.5},
+    {type:"caco",x:10.5,y:11.5},{type:"imp",x:3.5,y:11.5},
+    {type:"baron",x:7.5,y:13.5},{type:"zombie",x:1.5,y:13.5}
+  ],
+  items:[
+    {type:"stimpack",x:2.5,y:2.5},{type:"medikit",x:13.5,y:2.5},
+    {type:"greenArmor",x:6.5,y:7.5},{type:"blueArmor",x:13.5,y:7.5},
+    {type:"shellAmmo",x:5.5,y:1.5},{type:"rocketAmmo",x:10.5,y:7.5},
+    {type:"redKey",x:4.5,y:4.5},{type:"blueKey",x:10.5,y:4.5},
+    {type:"chainsawPickup",x:7.5,y:1.5},{type:"shotgunPickup",x:3.5,y:11.5},
+    {type:"cellAmmo",x:11.5,y:7.5},{type:"soulSphere",x:7.5,y:13.5},
+    {type:"invuln",x:1.5,y:14.5},{type:"compMap",x:13.5,y:14.5}
+  ],secrets:[{x:12,y:7},{x:13,y:14}]},
+  {name:"Phobos Lab",map:[
+    "5555555555555555",
+    "5000050000500005",
+    "5000050000500005",
+    "5000065000650005",
+    "5000050000500005",
+    "5555055555055555",
+    "5000000000000005",
+    "5000000000000005",
+    "5000070000900005",
+    "5000050000500005",
+    "5555055555055555",
+    "5000000000000005",
+    "5000000000000005",
+    "500000000000E005",
+    "5000000000000005",
+    "5555555555555555"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"imp",x:4.5,y:1.5},{type:"demon",x:8.5,y:1.5},
+    {type:"caco",x:12.5,y:2.5},{type:"spectre",x:6.5,y:6.5},
+    {type:"zombie",x:1.5,y:6.5},{type:"zombie",x:13.5,y:6.5},
+    {type:"baron",x:7.5,y:11.5},{type:"imp",x:10.5,y:11.5},
+    {type:"imp",x:4.5,y:13.5},{type:"caco",x:11.5,y:13.5}
+  ],
+  items:[
+    {type:"medikit",x:1.5,y:2.5},{type:"soulSphere",x:13.5,y:1.5},
+    {type:"blueArmor",x:7.5,y:6.5},{type:"greenArmor",x:13.5,y:6.5},
+    {type:"yellowKey",x:4.5,y:4.5},{type:"redKey",x:10.5,y:4.5},
+    {type:"plasmaPickup",x:7.5,y:1.5},{type:"rocketPickup",x:7.5,y:11.5},
+    {type:"shellAmmo",x:3.5,y:11.5},{type:"cellAmmo",x:11.5,y:6.5},
+    {type:"radsuit",x:1.5,y:14.5},{type:"lightAmp",x:13.5,y:14.5},
+    {type:"berserk",x:7.5,y:8.5}
+  ],secrets:[{x:1,y:14},{x:13,y:14},{x:7,y:8}]},
+  {name:"Central Processing",map:[
+    "1111111111111111",
+    "1000010000100001",
+    "1000010000100001",
+    "1000061000610001",
+    "1000010000100001",
+    "1111011111011111",
+    "1000000000000001",
+    "1000000000000001",
+    "1000070000809001",
+    "1000010000100001",
+    "1111011111011111",
+    "1000000000000001",
+    "1000000000000001",
+    "100000000000E001",
+    "1000000000000001",
+    "1111111111111111"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"zombie",x:5.5,y:1.5},{type:"imp",x:9.5,y:1.5},
+    {type:"demon",x:12.5,y:6.5},{type:"caco",x:6.5,y:7.5},
+    {type:"spectre",x:10.5,y:7.5},{type:"imp",x:1.5,y:11.5},
+    {type:"baron",x:7.5,y:13.5},{type:"imp",x:3.5,y:13.5}
+  ],
+  items:[
+    {type:"stimpack",x:2.5,y:2.5},{type:"medikit",x:13.5,y:2.5},
+    {type:"shotgunPickup",x:6.5,y:7.5},{type:"chaingunPickup",x:13.5,y:7.5},
+    {type:"shellAmmo",x:5.5,y:6.5},{type:"clipAmmo",x:10.5,y:6.5},
+    {type:"yellowKey",x:4.5,y:4.5},{type:"redKey",x:10.5,y:4.5},
+    {type:"blueKey",x:7.5,y:4.5},{type:"bfgPickup",x:1.5,y:13.5},
+    {type:"cellAmmo",x:3.5,y:13.5},{type:"rocketAmmo",x:11.5,y:13.5},
+    {type:"invuln",x:7.5,y:1.5}
+  ],secrets:[{x:7,y:7},{x:1,y:13}]},
+  {name:"Computer Station",map:[
+    "2222222222222222",
+    "2000002000000002",
+    "2000002000000002",
+    "2000062000060002",
+    "2000002000000002",
+    "2222022222022222",
+    "2000000000000002",
+    "2000000000000002",
+    "2000072000090002",
+    "2000002000000002",
+    "2222022222022222",
+    "2000000000000002",
+    "2000000000000002",
+    "200000000000E002",
+    "2000000000000002",
+    "2222222222222222"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"imp",x:5.5,y:1.5},{type:"zombie",x:8.5,y:1.5},
+    {type:"demon",x:12.5,y:2.5},{type:"caco",x:3.5,y:6.5},
+    {type:"spectre",x:10.5,y:6.5},{type:"imp",x:1.5,y:11.5},
+    {type:"baron",x:7.5,y:11.5},{type:"imp",x:13.5,y:11.5},
+    {type:"zombie",x:4.5,y:13.5}
+  ],
+  items:[
+    {type:"medikit",x:1.5,y:2.5},{type:"greenArmor",x:13.5,y:1.5},
+    {type:"chainsawPickup",x:7.5,y:6.5},{type:"soulSphere",x:7.5,y:1.5},
+    {type:"blueKey",x:4.5,y:4.5},{type:"yellowKey",x:10.5,y:4.5},
+    {type:"shellAmmo",x:3.5,y:6.5},{type:"rocketAmmo",x:10.5,y:6.5},
+    {type:"cellAmmo",x:5.5,y:11.5},{type:"medikit",x:13.5,y:11.5},
+    {type:"lightAmp",x:1.5,y:14.5},{type:"compMap",x:13.5,y:14.5}
+  ],secrets:[{x:5,y:6},{x:13,y:14}]},
+  {name:"Phobos Anomaly",map:[
+    "3333333333333333",
+    "3000003000000003",
+    "3000003000000003",
+    "3000063000060003",
+    "3000003000000003",
+    "3333033333033333",
+    "3000000000000003",
+    "3000000000000003",
+    "3000000000000003",
+    "3000030000030003",
+    "3333033333033333",
+    "3000000000000003",
+    "3000000000000003",
+    "300000000000E003",
+    "3000000000000003",
+    "3333333333333333"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"baron",x:7.5,y:6.5},{type:"baron",x:8.5,y:6.5},
+    {type:"caco",x:5.5,y:1.5},{type:"caco",x:10.5,y:1.5},
+    {type:"demon",x:12.5,y:6.5},{type:"spectre",x:3.5,y:6.5},
+    {type:"imp",x:7.5,y:11.5},{type:"imp",x:8.5,y:11.5}
+  ],
+  items:[
+    {type:"soulSphere",x:1.5,y:1.5},{type:"blueArmor",x:13.5,y:1.5},
+    {type:"bfgPickup",x:7.5,y:1.5},{type:"rocketAmmo",x:5.5,y:6.5},
+    {type:"cellAmmo",x:9.5,y:6.5},{type:"medikit",x:1.5,y:6.5},
+    {type:"greenArmor",x:1.5,y:11.5},{type:"invuln",x:13.5,y:11.5}
+  ],secrets:[{x:7,y:6}]},
+  {name:"Military Base",map:[
+    "4444444444444444",
+    "4000004000000004",
+    "4000004000000004",
+    "4000064000064004",
+    "4000004000000004",
+    "4444044444044444",
+    "4000000000000004",
+    "4000000000000004",
+    "4000074000089004",
+    "4000040000400004",
+    "4444044444044444",
+    "4000000000000004",
+    "4000000000000004",
+    "400000000000E004",
+    "4000000000000004",
+    "4444444444444444"
+  ],spawn:{x:1.5,y:1.5,a:0},
+  enemies:[
+    {type:"zombie",x:5.5,y:1.5},{type:"imp",x:9.5,y:1.5},
+    {type:"demon",x:12.5,y:2.5},{type:"spectre",x:3.5,y:6.5},
+    {type:"caco",x:10.5,y:6.5},{type:"imp",x:1.5,y:11.5},
+    {type:"baron",x:7.5,y:11.5},{type:"zombie",x:13.5,y:6.5},
+    {type:"imp",x:4.5,y:13.5},{type:"demon",x:8.5,y:13.5}
+  ],
+  items:[
+    {type:"medikit",x:1.5,y:2.5},{type:"stimpack",x:13.5,y:2.5},
+    {type:"shotgunPickup",x:7.5,y:6.5},{type:"chaingunPickup",x:7.5,y:11.5},
+    {type:"shellAmmo",x:5.5,y:6.5},{type:"clipAmmo",x:10.5,y:6.5},
+    {type:"redKey",x:4.5,y:4.5},{type:"blueKey",x:10.5,y:4.5},
+    {type:"yellowKey",x:7.5,y:4.5},{type:"bfgPickup",x:13.5,y:11.5},
+    {type:"cellAmmo",x:3.5,y:11.5},{type:"rocketAmmo",x:11.5,y:11.5},
+    {type:"compMap",x:1.5,y:14.5},{type:"lightAmp",x:13.5,y:14.5}
+  ],secrets:[{x:1,y:14},{x:13,y:14},{x:7,y:6},{x:7,y:11}]}
 ];
 let map=[],mapW=16,mapH=16;
 
@@ -217,21 +408,13 @@ function loadLevel(n){
   map=lv.map.map(r=>r.split("").map(c=>c==="E"?"E":parseInt(c)||0));
   mapW=map[0].length;mapH=map.length;
   px=lv.spawn.x;py=lv.spawn.y;pa=lv.spawn.a;
-  // Only reset weapons/keys/ammo on FIRST level load (new game)
-  if(n===1&&gameState!=="play"){
-    hasWeap=[true,true,false,false,false,false];
-    hasKey={red:false,blue:false,yellow:false};
-    ammo={bullet:50,shell:0,rocket:0,cell:0};
-    maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
-    hasBackpack=false;
-    berserkFistDmg=10;
-    totalKills=0;
-  }
-  // Always persist: pHealth carries over (DOOM style), but cap at 100 without bonus
-  if(n===1&&gameState!=="play"){pHealth=100;pArmor=0;pArmorType=0;}
-  curWeap=1;weapAnim=0;fireTimer=0;
+  pHealth=100;pArmor=0;pArmorType=0;curWeap=1;
+  hasWeap=[true,true,false,false,false,false,false,false];weapAnim=0;fireTimer=0;
+  hasKey={red:false,blue:false,yellow:false};
   invulnTimer=0;berserkTimer=0;invisTimer=0;radSuitTimer=0;lightAmpTimer=0;mapReveal=false;
-  damageFlash=0;pickupMsg="";pickupTimer=0;
+  ammo={bullet:50,shell:0,rocket:0,cell:0};
+  maxAmmo={bullet:200,shell:50,rocket:50,cell:300};
+  hasBackpack=false;damageFlash=0;pickupMsg="";pickupTimer=0;
   kills=0;itemsCollected=0;secretsFound=0;
   enemies=[];items=[];projectiles=[];doors=[];particles=[];
   totalEnemies=lv.enemies.length;totalItems=lv.items.length;totalSecrets=lv.secrets?lv.secrets.length:0;
@@ -262,8 +445,7 @@ function isWall(x,y){
   if(c==="E")return false;
   if(c>=6&&c<=9){
     const d=doors.find(d=>d.x===mx&&d.y===my);
-    if(d)return d.open<0.9;
-    return true;
+    return d?d.open<0.8:true;
   }
   return c>0;
 }
@@ -273,52 +455,32 @@ function canMove(nx,ny){
   return !isWall(nx-r,ny-r)&&!isWall(nx+r,ny-r)&&!isWall(nx-r,ny+r)&&!isWall(nx+r,ny+r);
 }
 
-// Door interaction - FIXED: more reliable, better feedback
+// Door interaction
 function tryOpenDoor(){
   const dx=Math.cos(pa),dy=Math.sin(pa);
-  for(let s=0.3;s<2.5;s+=0.3){
+  for(let s=0.5;s<2;s+=0.5){
     const tx=Math.floor(px+dx*s),ty=Math.floor(py+dy*s);
-    if(tx<0||tx>=mapW||ty<0||ty>=mapH)continue;
     const d=doors.find(d=>d.x===tx&&d.y===ty);
     if(d){
       if(d.locked){
-        if(hasKey[d.locked]){
-          const kc=d.locked;
-          d.locked="";
-          d.opening=true;
-          d.open=0;
-          sndDoor();sndKey();
-          pickupMsg=kc.charAt(0).toUpperCase()+kc.slice(1)+" door unlocked!";
-          pickupTimer=90;
-          return true;
-        } else{
-          pickupMsg="Need "+d.locked+" key!";
-          pickupTimer=90;
-          sndDoorClosed();
-          return false;
-        }
+        if(hasKey[d.locked]){const k=d.locked; d.locked="";d.opening=true;sndDoor();sndKey();
+          pickupMsg=k.toUpperCase()+" door unlocked!";pickupTimer=90;doorErrorTimer=0;return;}
+        else{doorErrorMsg="WRONG KEY! Need "+d.locked.toUpperCase()+" key!";doorErrorTimer=60;pickupMsg="Need "+d.locked+" key!";pickupTimer=90;sndError();return;}
       }
-      if(d.open<0.1){
-        d.opening=true;
-        sndDoor();
-        return true;
-      }
-      return false;
+      if(!d.opening&&d.open<0.1){d.opening=true;sndDoor();}
+      return;
     }
-    if(map[ty]&&map[ty][tx]==="E"){completeLevel();return true;}
-    const cell=map[ty][tx];
-    if(cell>0&&cell<6)return false;
+    // Check exit
+    if(map[ty]&&map[ty][tx]==="E"){completeLevel();return;}
   }
-  return false;
 }
 
-// Item pickup - FIXED: better radius, proper secret detection
+// Item pickup
 function checkItemPickup(){
   items.forEach(it=>{
     if(it.picked)return;
     const dx=it.x-px,dy=it.y-py;
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist<0.8){
+    if(dx*dx+dy*dy<0.5){
       const t=ITEM_TYPES[it.type];
       let picked=false;
       if(t.effect==="health"){
@@ -337,7 +499,7 @@ function checkItemPickup(){
         if(!hasKey[t.keyType]){hasKey[t.keyType]=true;picked=true;sndKey();}
       }else if(t.effect==="powerup"){
         if(t.pType==="invuln"){invulnTimer=t.dur;picked=true;}
-        else if(t.pType==="berserk"){berserkTimer=t.dur;pHealth=Math.max(pHealth,100);berserkFistDmg=100;picked=true;}
+        else if(t.pType==="berserk"){berserkTimer=t.dur;pHealth=Math.max(pHealth,100);WEAPONS[0].dmg=100;picked=true;}
         else if(t.pType==="invis"){invisTimer=t.dur;picked=true;}
         else if(t.pType==="radsuit"){radSuitTimer=t.dur;picked=true;}
         else if(t.pType==="map"){mapReveal=true;picked=true;}
@@ -345,8 +507,6 @@ function checkItemPickup(){
       }else if(t.effect==="weapon"){
         if(!hasWeap[t.weapIdx]){hasWeap[t.weapIdx]=true;curWeap=t.weapIdx;picked=true;}
         if(t.ammoType&&ammo[t.ammoType]<maxAmmo[t.ammoType]){ammo[t.ammoType]=Math.min(ammo[t.ammoType]+t.val,maxAmmo[t.ammoType]);picked=true;}
-        // If already have weapon and full ammo, still mark picked so item disappears
-        if(hasWeap[t.weapIdx]&&t.ammoType&&ammo[t.ammoType]>=maxAmmo[t.ammoType])picked=true;
       }
       if(picked){it.picked=true;itemsCollected++;pickupMsg=t.name;pickupTimer=90;
         if(t.effect!=="key")sndPickup();
@@ -360,27 +520,28 @@ function checkItemPickup(){
   });
 }
 
-// Weapon switching - always allow switching to unlocked weapons
+// Weapon switching
 function switchWeapon(dir){
   let n=curWeap;
-  for(let i=0;i<6;i++){n=(n+dir+6)%6;if(hasWeap[n]){curWeap=n;sndWeaponSwitch();return;}}
+  for(let i=0;i<8;i++){n=(n+dir+8)%8;if(hasWeap[n]){
+    const w=WEAPONS[n];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=n;sndWeaponSwitch();return;}
+  }}
 }
-function selectWeapon(idx){if(hasWeap[idx]){curWeap=idx;sndWeaponSwitch();}}
+function selectWeapon(idx){if(hasWeap[idx]){const w=WEAPONS[idx];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=idx;sndWeaponSwitch();}}}
 
 // Fire weapon
 function fireWeapon(){
+  if(fireTimer>0||weapAnim>0)return;
   const w=WEAPONS[curWeap];
-  // Auto weapons: only blocked by fireTimer. Semi-auto: blocked by fireTimer AND weapAnim.
-  if(fireTimer>0)return;
-  if(!w.auto&&weapAnim>0)return;
   if(w.ammoType&&ammo[w.ammoType]<w.cost)return;
   if(w.ammoType)ammo[w.ammoType]-=w.cost;
-  fireTimer=w.rate;
-  if(!w.auto)weapAnim=10;
+  fireTimer=w.rate;weapAnim=10;
   if(curWeap===0){sndShoot();}
   else if(curWeap===2){sndShotgun();}
   else if(curWeap===4){sndRocket();}
   else if(curWeap===5){sndPlasma();}
+  else if(curWeap===6){sndChainsaw();}
+  else if(curWeap===7){sndBFG();}
   else{sndShoot();}
   damageFlash=3;
   // Hitscan or projectile
@@ -389,8 +550,8 @@ function fireWeapon(){
   }else if(curWeap===5){// Plasma
     projectiles.push({x:px,y:py,dx:Math.cos(pa)*0.12,dy:Math.sin(pa)*0.12,dmg:w.dmg,owner:"player",life:200,type:"plasma"});
   }else{// Hitscan
-    let dmg=w.dmg;if(berserkTimer>0&&curWeap===0)dmg=berserkFistDmg;
-    const spread=w.spread;const pellets=curWeap===2?7:1;
+    let dmg=w.dmg;if(berserkTimer>0&&curWeap===0)dmg=100;
+    const spread=w.spread;const pellets=curWeap===2?7:curWeap===7?12:1;
     for(let p=0;p<pellets;p++){
       const a=pa+(Math.random()-0.5)*spread;
       const dx=Math.cos(a),dy=Math.sin(a);
@@ -407,7 +568,7 @@ function fireWeapon(){
         const d=curWeap===2?Math.floor(dmg/pellets*(0.8+Math.random()*0.4)):dmg;
         hit.hp-=d;hit.pain=8;hit.alert=true;hit.state="chase";
         particles.push({x:hit.x,y:hit.y,color:"#f00",life:10,type:"blood"});
-        if(hit.hp<=0){hit.dead=true;hit.state="dead";hit.timer=30;kills++;score+=hit.score;faceKillGrin=30;totalKills++;sndDeath();}
+        if(hit.hp<=0){hit.dead=true;hit.state="dead";hit.timer=30;kills++;score+=hit.score;sndDeath();}
         else{sndHurt();}
       }
     }
@@ -423,23 +584,23 @@ function updateProjectiles(){
         for(let i=0;i<8;i++)particles.push({x:p.x,y:p.y,color:"#f80",life:15+Math.random()*10,type:"explosion",
           vx:(Math.random()-0.5)*0.05,vy:(Math.random()-0.5)*0.05});
         enemies.forEach(e=>{if(!e.dead){const d=Math.sqrt((e.x-p.x)**2+(e.y-p.y)**2);
-          if(d<2.5){const dmg=Math.floor(p.dmg*(1-d/2.5));e.hp-=dmg;e.pain=8;e.alert=true;
-            if(e.hp<=0){e.dead=true;e.state="dead";faceKillGrin=30;totalKills++;e.timer=30;kills++;score+=e.score;}}}});
+          if(d<2){const dmg=Math.floor(p.dmg*(1-d/2));e.hp-=dmg;e.pain=8;e.alert=true;
+            if(e.hp<=0){e.dead=true;e.state="dead";e.timer=30;kills++;score+=e.score;}}}});
         if(p.owner==="player"){const d=Math.sqrt((px-p.x)**2+(py-p.y)**2);
-          if(d<2.5){takeDamage(Math.floor(50*(1-d/2.5)));}}
+          if(d<2){takeDamage(Math.floor(50*(1-d/2)));}}
       }return false;}
     if(p.owner==="player"){
       let hit=false;enemies.forEach(e=>{if(!e.dead&&!hit){
         const d=Math.sqrt((e.x-p.x)**2+(e.y-p.y)**2);
         if(d<0.4){e.hp-=p.dmg;e.pain=8;e.alert=true;
-          if(e.hp<=0){e.dead=true;e.state="dead";faceKillGrin=30;totalKills++;e.timer=30;kills++;score+=e.score;sndDeath();}
+          if(e.hp<=0){e.dead=true;e.state="dead";e.timer=30;kills++;score+=e.score;sndDeath();}
           hit=true;if(p.type==="rocket"){sndExplosion();
             enemies.forEach(e2=>{if(!e2.dead){const d2=Math.sqrt((e2.x-p.x)**2+(e2.y-p.y)**2);
               if(d2<2&&e2!==e){e2.hp-=Math.floor(p.dmg*(1-d2/2));if(e2.hp<=0){e2.dead=true;e2.state="dead";kills++;score+=e2.score;}}}});}
         }}});if(hit)return false;
     }else{
       const d=Math.sqrt((px-p.x)**2+(py-p.y)**2);
-      if(d<0.4){takeDamage(p.dmg);return false;}
+      if(d<0.3){takeDamage(p.dmg);return false;}
     }
     return true;
   });
@@ -459,18 +620,11 @@ function takeDamage(d){
 function updateEnemies(){
   enemies.forEach(e=>{
     if(e.dead){e.timer--;return;}
-    if(e.pain>0){e.pain--;if(e.pain>6)return;}
+    if(e.pain>0){e.pain--;return;}
     const dx=px-e.x,dy=py-e.y,dist=Math.sqrt(dx*dx+dy*dy);
     const toPlayer=Math.atan2(dy,dx);
-    // Alert if close with line of sight
-    if(dist<10&&!e.alert){
-      const losDx=dx/dist,losDy=dy/dist;
-      let blocked=false;
-      for(let s=0.5;s<dist;s+=0.5){
-        if(isWall(e.x+losDx*s,e.y+losDy*s)){blocked=true;break;}
-      }
-      if(!blocked){e.alert=true;e.state="chase";}
-    }
+    // Alert if close or shot
+    if(dist<8&&!e.alert){e.alert=true;e.state="chase";}
     if(e.state==="idle"){
       e.timer--;if(e.timer<=0){e.dir=Math.random()*Math.PI*2;e.timer=60+Math.random()*120;}
       const nx=e.x+Math.cos(e.dir)*e.spd*0.5,ny=e.y+Math.sin(e.dir)*e.spd*0.5;
@@ -479,51 +633,31 @@ function updateEnemies(){
       e.dir=toPlayer;e.attackTimer--;
       if(dist<1.5&&e.type==="demon"){
         if(e.attackTimer<=0){takeDamage(e.dmg);e.attackTimer=e.rate;}
-      }else if(dist>1.2&&dist<12&&e.attackTimer<=0&&e.type!=="demon"){
-        // Ranged attack - check line of sight
-        const losDx=dx/dist,losDy=dy/dist;
-        let blocked=false;
-        for(let s=0.5;s<dist;s+=0.5){
-          if(isWall(e.x+losDx*s,e.y+losDy*s)){blocked=true;break;}
-        }
-        if(!blocked){
-        const spread=(Math.random()-0.5)*0.15;
+      }else if(dist<10&&e.attackTimer<=0&&e.type!=="demon"){
+        // Ranged attack
+        const spread=(Math.random()-0.5)*0.1;
         projectiles.push({x:e.x,y:e.y,dx:Math.cos(toPlayer+spread)*0.06,dy:Math.sin(toPlayer+spread)*0.06,
           dmg:e.dmg,owner:"enemy",life:200,type:"enemy"});
         e.attackTimer=e.rate;
-        }
       }
       const spd=e.spd;const nx=e.x+Math.cos(toPlayer)*spd,ny=e.y+Math.sin(toPlayer)*spd;
       if(!isWall(nx,e.y))e.x=nx;if(!isWall(e.x,ny))e.y=ny;
-      const moved=Math.abs(e.x-nx)>0.001||Math.abs(e.y-ny)>0.001;
-      if(!moved){
-        const perp1=toPlayer+Math.PI/2,perp2=toPlayer-Math.PI/2;
-        const nx1=e.x+Math.cos(perp1)*spd,ny1=e.y+Math.sin(perp1)*spd;
-        const nx2=e.x+Math.cos(perp2)*spd,ny2=e.y+Math.sin(perp2)*spd;
-        if(!isWall(nx1,ny1)){e.x=nx1;e.y=ny1;}
-        else if(!isWall(nx2,ny2)){e.x=nx2;e.y=ny2;}
-      }
     }
   });
 }
 
-// Update doors - FIXED: longer open time, don't close on player
+// Update doors
 function updateDoors(){
   doors.forEach(d=>{
-    if(d.opening){d.open=Math.min(d.open+0.04,1);if(d.open>=1){d.opening=false;d.timer=600;}}
-    if(!d.opening&&d.open>0&&!d.locked){
-      d.timer--;
-      const playerInDoor=Math.floor(px)===d.x&&Math.floor(py)===d.y;
-      if(d.timer<=0&&!playerInDoor){d.open=Math.max(d.open-0.04,0);}
-      if(playerInDoor&&d.timer>0){d.timer=600;}
-    }
+    if(d.opening){d.open=Math.min(d.open+0.03,1);if(d.open>=1){d.opening=false;d.timer=180;}}
+    if(!d.opening&&d.open>0&&!d.locked){d.timer--;if(d.timer<=0){d.open=Math.max(d.open-0.03,0);}}
   });
 }
 
 // Player movement
 function updatePlayer(){
-  pa+=turnR*0.05;
-  const spd=0.06;
+  pa+=turnR*0.04;
+  const spd=0.05;
   const nx=px+Math.cos(pa)*moveF*spd-Math.sin(pa)*moveS*spd;
   const ny=py+Math.sin(pa)*moveF*spd+Math.cos(pa)*moveS*spd;
   if(canMove(nx,py))px=nx;
@@ -532,31 +666,14 @@ function updatePlayer(){
   if(weapAnim>0)weapAnim--;
   if(damageFlash>0)damageFlash--;
   if(pickupTimer>0)pickupTimer--;
-  if(facePain>0)facePain--;if(faceKillGrin>0)faceKillGrin--;
+  if(facePain>0)facePain--;
   if(invulnTimer>0)invulnTimer--;
   if(berserkTimer>0)berserkTimer--;
   if(invisTimer>0)invisTimer--;
   if(radSuitTimer>0)radSuitTimer--;
   if(lightAmpTimer>0)lightAmpTimer--;
   if(shooting&&(WEAPONS[curWeap].auto||fireTimer<=0))fireWeapon();
-  if(doorUseRequested){doorUseRequested=false;tryOpenDoor();}
   checkItemPickup();
-  // Also check secrets by player proximity
-  const lv=LEVELS[level];
-  if(lv&&lv.secrets){
-    lv.secrets.forEach(s=>{
-      if(!s.found){
-        const sdx=px-(s.x+0.5),sdy=py-(s.y+0.5);
-        if(sdx*sdx+sdy*sdy<1.5){
-          s.found=true;
-          secretsFound++;
-          sndSecret();
-          pickupMsg="Secret found!";
-          pickupTimer=90;
-        }
-      }
-    });
-  }
   gameTime++;
   // Update particles
   particles=particles.filter(p=>{p.life--;if(p.vx){p.x+=p.vx;p.y+=p.vy;}return p.life>0;});
@@ -601,7 +718,7 @@ function renderScene(){
     const wallTop=(viewH-wallH)/2;
     const shade=Math.min(1,bright/(perpDist*0.3+0.5))*(side===0?1:0.7);
     const baseCol=wallColors[wallType]||"#888";
-    const r=parseInt(baseCol.slice(1,3),16)||0,g=parseInt(baseCol.slice(3,5),16)||0,b=parseInt(baseCol.slice(5,7),16)||0;
+    const r=parseInt(baseCol.slice(1,2),16)*17,g=parseInt(baseCol.slice(2,3),16)*17,b=parseInt(baseCol.slice(3,4),16)*17;
     ctx.fillStyle=`rgb(${Math.floor(r*shade)},${Math.floor(g*shade)},${Math.floor(b*shade)})`;
     ctx.fillRect(x,wallTop,1,wallH);
     // Simple texture lines
@@ -635,7 +752,7 @@ function renderSprites(){
   projectiles.forEach(p=>{
     const dx=p.x-px,dy=p.y-py;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    const col=p.type==="rocket"?"#f80":p.type==="plasma"?"#4af":p.type==="enemy"?"#f44":"#fa0";
+    const col=p.type==="rocket"?"#f80":p.type==="plasma"?"#4af":"#fa0";
     spriteList.push({x:p.x,y:p.y,dist:dist,color:col,size:0.2,isEnemy:false,dead:false});
   });
   // Particles
@@ -701,17 +818,8 @@ function renderMinimap(){
     const c=map[y][x];
     if(mapReveal||Math.abs(x-Math.floor(px))<6&&Math.abs(y-Math.floor(py))<6){
       if(c==="E")ctx.fillStyle="#0f0";
-      else if(c>=7&&c<=9){
-        const d=doors.find(dd=>dd.x===x&&dd.y===y);
-        if(d&&d.locked===""){ctx.fillStyle=d.open>0.5?"#0a0":"#a80";}
-        else if(c===7)ctx.fillStyle="#f00";
-        else if(c===8)ctx.fillStyle="#44f";
-        else if(c===9)ctx.fillStyle="#ff0";
-      }
-      else if(c===6){
-        const d=doors.find(dd=>dd.x===x&&dd.y===y);
-        ctx.fillStyle=d&&d.open>0.5?"#0a0":"#a80";
-      }
+      else if(c>=7&&c<=9)ctx.fillStyle=["","#f00","#00f","#ff0"][c-6];
+      else if(c>=6)ctx.fillStyle="#a80";
       else if(c>0)ctx.fillStyle="#666";
       else ctx.fillStyle="#222";
       ctx.fillRect(ox+x*ms,oy+y*ms,ms,ms);
@@ -769,7 +877,7 @@ function renderHUD(){
   
   // Face/Status indicator (center)
   const faceX=138,faceY=hy+10,faceW=20,faceH=24;
-  const ft=FACE_TYPES[activeFaceIdx];ctx.fillStyle=ft.color;ctx.fillRect(faceX,faceY,faceW,faceH);
+  ctx.fillStyle="#c90";ctx.fillRect(faceX,faceY,faceW,faceH);
   // Face expression based on health
   if(pHealth<=0){
     ctx.fillStyle="#800";ctx.fillRect(faceX+4,faceY+8,4,2);ctx.fillRect(faceX+12,faceY+8,4,2);
@@ -777,7 +885,7 @@ function renderHUD(){
   }else if(facePain>0){
     ctx.fillStyle="#a00";ctx.fillRect(faceX+3,faceY+8,5,3);ctx.fillRect(faceX+12,faceY+8,5,3);
     ctx.fillStyle="#800";ctx.fillRect(faceX+7,faceY+18,6,2);
-  }else if(faceKillGrin>0){ctx.fillStyle=ft.eye;ctx.fillRect(faceX+4,faceY+8,4,4);ctx.fillRect(faceX+12,faceY+8,4,4);ctx.fillStyle="#f00";ctx.fillRect(faceX+6,faceY+16,8,4);}else if(pHealth>75){
+  }else if(pHealth>75){
     ctx.fillStyle="#000";ctx.fillRect(faceX+5,faceY+8,3,3);ctx.fillRect(faceX+12,faceY+8,3,3);
     ctx.fillStyle="#a00";ctx.fillRect(faceX+7,faceY+18,6,2);
   }else if(pHealth>40){
@@ -788,8 +896,7 @@ function renderHUD(){
     ctx.fillStyle="#600";ctx.fillRect(faceX+7,faceY+16,6,4);
     ctx.fillStyle="#f00";ctx.fillRect(faceX+2,faceY+12,2,6);
   }
-  ctx.fillStyle="#fff";ctx.font="5px monospace";ctx.textAlign="center";ctx.fillText(ft.name,faceX+faceW/2,faceY+faceH+8);ctx.textAlign="left";
-    // Invulnerability face glow
+  // Invulnerability face glow
   if(invulnTimer>0){ctx.fillStyle="rgba(255,255,0,0.3)";ctx.fillRect(faceX,faceY,faceW,faceH);}
   if(berserkTimer>0){ctx.fillStyle="rgba(255,0,0,0.3)";ctx.fillRect(faceX,faceY,faceW,faceH);}
   
@@ -807,20 +914,12 @@ function renderHUD(){
   // Arms display (right side)
   ctx.fillStyle="#aaa";ctx.font="7px monospace";
   ctx.fillText("ARMS",165,hy+48);
-  for(let i=0;i<6;i++){
+  for(let i=0;i<8;i++){
     ctx.fillStyle=i===curWeap?"#ff0":hasWeap[i]?"#666":"#333";
-    ctx.fillRect(190+i*8,hy+42,6,8);
+    ctx.fillRect(174+i*8,hy+42,6,8);
     ctx.fillStyle=i===curWeap?"#000":"#aaa";ctx.font="6px monospace";
-    ctx.fillText((i+1)+"",191+i*8,hy+49);
+    ctx.fillText((i+1)+"",175+i*8,hy+49);
   }
-
-  // Keycard display (bottom right of HUD)
-  const keyY=hy+56;
-  ctx.font="7px monospace";
-  if(hasKey.red){ctx.fillStyle="#f00";ctx.fillText("RED",165,keyY);}
-  if(hasKey.blue){ctx.fillStyle="#44f";ctx.fillText("BLU",185,keyY);}
-  if(hasKey.yellow){ctx.fillStyle="#ff0";ctx.fillText("YEL",205,keyY);}
-  if(!hasKey.red&&!hasKey.blue&&!hasKey.yellow){ctx.fillStyle="#444";ctx.font="6px monospace";ctx.fillText("NO KEYS",165,keyY);}
   
   // Keys display
   ctx.font="7px monospace";
@@ -862,39 +961,16 @@ function renderCrosshair(){
   ctx.beginPath();ctx.moveTo(cx,cy+1);ctx.lineTo(cx,cy+4);ctx.stroke();
 }
 
-// Damage flash, pickup message, and door prompt
+// Damage flash and pickup message + door error red flash
 function renderEffects(){
   const viewH=H-60;
   if(damageFlash>0){ctx.fillStyle=`rgba(255,0,0,${damageFlash*0.06})`;ctx.fillRect(0,0,W,viewH);}
+  if(doorErrorTimer>0){doorErrorTimer--; if(doorErrorTimer%8<4){ctx.fillStyle="rgba(255,0,0,0.28)";ctx.fillRect(0,0,W,viewH); ctx.fillStyle="#f00";ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText(doorErrorMsg,W/2,viewH/2);ctx.textAlign="left";}}
   if(invulnTimer>0&&invulnTimer%4<2){ctx.fillStyle="rgba(255,255,0,0.05)";ctx.fillRect(0,0,W,viewH);}
   if(radSuitTimer>0){ctx.fillStyle="rgba(0,255,0,0.03)";ctx.fillRect(0,0,W,viewH);}
   if(pickupTimer>0){
-    ctx.fillStyle="#ff0";ctx.font="bold 9px monospace";
+    ctx.fillStyle=doorErrorTimer>0?"#f88":"#ff0";ctx.font="bold 9px monospace";
     ctx.textAlign="center";ctx.fillText(pickupMsg,W/2,viewH-10);ctx.textAlign="left";
-  }
-  // Door interaction prompt
-  if(gameState==="play"){
-    const ddx=Math.cos(pa),ddy=Math.sin(pa);
-    for(let s=0.5;s<2.5;s+=0.5){
-      const tx=Math.floor(px+ddx*s),ty=Math.floor(py+ddy*s);
-      if(tx<0||tx>=mapW||ty<0||ty>=mapH)break;
-      const cell=map[ty]&&map[ty][tx];
-      if(cell>=6&&cell<=9){
-        const d=doors.find(d=>d.x===tx&&d.y===ty);
-        if(d&&d.open<0.5){
-          const prompt=d.locked?"[E] Need "+d.locked+" key":"[E] Open door";
-          ctx.fillStyle="#ff0";ctx.font="bold 8px monospace";
-          ctx.textAlign="center";ctx.fillText(prompt,W/2,viewH-20);ctx.textAlign="left";
-        }
-        break;
-      }
-      if(cell==="E"){
-        ctx.fillStyle="#0f0";ctx.font="bold 8px monospace";
-        ctx.textAlign="center";ctx.fillText("[E] Exit",W/2,viewH-20);ctx.textAlign="left";
-        break;
-      }
-      if(cell>0&&cell<6)break;
-    }
   }
 }
 
@@ -906,26 +982,6 @@ function completeLevel(){
 }
 
 // Title screen
-function renderSkins(){
-  ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
-  ctx.fillStyle="#f00";ctx.font="bold 16px monospace";ctx.textAlign="center";
-  ctx.fillText("SKINS",W/2,30);ctx.font="7px monospace";
-  for(var i=0;i<FACE_TYPES.length;i++){var ft=FACE_TYPES[i],y=50+i*35,u=isFaceUnlocked(i);
-    ctx.fillStyle=u?ft.color:"#333";ctx.fillRect(20,y,24,24);
-    ctx.fillStyle=i===activeFaceIdx?"#ff0":"#fff";ctx.textAlign="left";
-    ctx.fillText(u?ft.name:"???",50,y+15);}
-  ctx.fillStyle="#ff0";ctx.textAlign="center";ctx.fillText("[Side button to go back]",W/2,H-15);ctx.textAlign="left";
-}
-function renderSettings(){
-  ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
-  ctx.fillStyle="#f00";ctx.font="bold 16px monospace";ctx.textAlign="center";
-  ctx.fillText("SETTINGS",W/2,30);
-  ctx.fillStyle="#fff";ctx.font="8px monospace";
-  ctx.fillText("Sensitivity: "+aimSensitivity,W/2,60);
-  ctx.fillStyle="#444";ctx.fillRect(60,70,120,8);ctx.fillStyle="#f00";ctx.fillRect(60,70,aimSensitivity*12,8);
-  ctx.fillStyle="#fff";ctx.fillText("Audio: "+(audioOn?"ON":"OFF"),W/2,100);
-  ctx.fillStyle="#ff0";ctx.fillText("[Side button to go back]",W/2,130);ctx.textAlign="left";
-}
 function renderTitle(){
   ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
   // Doom-style title
@@ -938,14 +994,14 @@ function renderTitle(){
   ctx.fillText("by GLX",W/2,105);
   // Menu
   ctx.fillStyle="#fff";ctx.font="10px monospace";
-  ctx.fillStyle=menuSelection===0?"#ff0":"#fff";ctx.fillText("PLAY",W/2,140);
-  ctx.fillStyle=menuSelection===1?"#ff0":"#fff";ctx.fillText("SETTINGS",W/2,155);
-  ctx.fillStyle=menuSelection===2?"#ff0":"#fff";ctx.fillText("SKINS",W/2,170);
+  ctx.fillText("NEW GAME",W/2,150);
   ctx.fillStyle="#888";ctx.font="9px monospace";
-  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,185);
-  // Navigation hint
-  ctx.fillStyle="#888";ctx.font="8px monospace";
-  ctx.fillText("Scroll to navigate, Enter to select",W/2,195);
+  ctx.fillText("Level "+level+": "+LEVELS[level].name,W/2,170);
+  // Flashing start text
+  if(Math.floor(gameTime/30)%2===0){
+    ctx.fillStyle="#ff0";ctx.font="bold 10px monospace";
+    ctx.fillText("PRESS ANY KEY / TAP",W/2,200);
+  }
   // Credits
   ctx.fillStyle="#f80";ctx.font="bold 9px monospace";
   ctx.fillText("Created by",W/2,240);
@@ -954,11 +1010,6 @@ function renderTitle(){
   ctx.fillStyle="#0ff";ctx.font="bold 9px monospace";
   ctx.fillText("[GhostLegacyX]",W/2,268);
   ctx.textAlign="left";
-    // Debug overlay - show last input event for R1 diagnosis
-    if(typeof lastInputDebug!=="undefined"){
-      ctx.fillStyle="#0ff";ctx.font="bold 7px monospace";ctx.textAlign="center";
-      ctx.fillText("DBG: "+lastInputDebug,W/2,H-4);ctx.textAlign="left";
-    }
   gameTime++;
 }
 
@@ -974,7 +1025,7 @@ function renderGameOver(){
   ctx.fillText("Level: "+level+" - "+LEVELS[level].name,W/2,180);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#ff0";ctx.font="bold 10px monospace";
-    ctx.fillText("SIDE BUTTON TO RESTART",W/2,220);
+    ctx.fillText("TAP TO RESTART",W/2,220);
   }
   ctx.textAlign="left";gameTime++;
 }
@@ -1014,8 +1065,8 @@ function renderLevelEnd(){
   ctx.fillText(rating,W/2,245);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#fff";ctx.font="9px monospace";
-    if(level<maxLevel)ctx.fillText("SIDE BUTTON: NEXT LEVEL",W/2,270);
-    else ctx.fillText("YOU WON!",W/2,270);
+    if(level<maxLevel)ctx.fillText("TAP FOR NEXT LEVEL",W/2,270);
+    else ctx.fillText("TAP - YOU WON!",W/2,270);
   }
   ctx.textAlign="left";gameTime++;
 }
@@ -1039,20 +1090,20 @@ function renderVictory(){
   ctx.fillText("[GhostLegacyX]",W/2,218);
   if(Math.floor(gameTime/30)%2===0){
     ctx.fillStyle="#fff";ctx.font="9px monospace";
-    ctx.fillText("SIDE BUTTON TO PLAY AGAIN",W/2,260);
+    ctx.fillText("TAP TO PLAY AGAIN",W/2,260);
   }
   ctx.textAlign="left";gameTime++;
 }
 
 // Main game loop
 function gameLoop(){
-  if(gameState==="title"){renderTitle();}else if(gameState==="settings"){renderSettings();}else if(gameState==="skins"){renderSkins();}
+  if(gameState==="title"){renderTitle();}
   else if(gameState==="play"){
     updatePlayer();updateEnemies();updateProjectiles();updateDoors();
     renderScene();renderSprites();renderWeapon();renderCrosshair();
-    renderEffects();renderMinimap();renderHUD();renderControls();
+    renderEffects();renderMinimap();renderHUD();
   }else if(gameState==="dead"){
-    renderScene();renderSprites();renderHUD();renderControls();renderGameOver();
+    renderScene();renderSprites();renderHUD();renderGameOver();
   }else if(gameState==="levelEnd"){
     renderLevelEnd();
   }else if(gameState==="victory"){
@@ -1075,18 +1126,7 @@ function nextLevel(){
 
 // Keyboard controls
 document.addEventListener("keydown",e=>{
-    if(gameState==="title"){
-    if(e.key==="ArrowDown"||e.key==="PageDown")menuSelection=(menuSelection+1)%3;
-    if(e.key==="ArrowUp"||e.key==="PageUp")menuSelection=(menuSelection+2)%3;
-    if(e.key==="Enter"||e.key===" "){
-      if(menuSelection===0)startGame();
-      else if(menuSelection===1)gameState="settings";
-      else gameState="skins";
-    }
-    e.preventDefault();return;
-  }
-    if((gameState==="settings"||gameState==="skins")&&(e.key==="Escape"||e.key==="Backspace")){gameState="title";e.preventDefault();return;}
-  /* menu handles title keys */
+  if(gameState==="title"){startGame();return;}
   if(gameState==="dead"){startGame();return;}
   if(gameState==="levelEnd"){nextLevel();return;}
   if(gameState==="victory"){level=1;score=0;startGame();return;}
@@ -1098,12 +1138,10 @@ document.addEventListener("keydown",e=>{
   if(k==="arrowleft")turnR=-1;
   if(k==="arrowright")turnR=1;
   if(k===" "||k==="control")shooting=true;
-  if(k==="e"||k==="enter"){doorUseRequested=true;}
+  if(k==="e"||k==="enter"){useBtn=true;tryOpenDoor();}
   if(k==="q")switchWeapon(-1);
   if(k==="r")switchWeapon(1);
   if(k>="1"&&k<="6")selectWeapon(parseInt(k)-1);
-  // Shift = run (faster movement)
-  if(e.key==="Shift"){moveF*=1.8;moveS*=1.8;}
   e.preventDefault();
 });
 document.addEventListener("keyup",e=>{
@@ -1112,58 +1150,26 @@ document.addEventListener("keyup",e=>{
   if(k==="a"||k==="d")moveS=0;
   if(k==="arrowleft"||k==="arrowright")turnR=0;
   if(k===" "||k==="control")shooting=false;
-
+  if(k==="e"||k==="enter")useBtn=false;
 });
 
-// Helper to get canvas coordinates from touch/mouse
-function getCanvasCoords(t){
-  const r=canvas.getBoundingClientRect();
-  return {x:(t.clientX-r.left)*(W/r.width),y:(t.clientY-r.top)*(H/r.height)};
-}
-
-// R1 Touch controls — virtual joystick style
+// R1 Touch controls
 let touchL=null,touchR=null,touchStartL={x:0,y:0},touchStartR={x:0,y:0};
 canvas.addEventListener("touchstart",e=>{
   e.preventDefault();
-  if(gameState==="title"){
-    const c=getCanvasCoords(e.changedTouches[0]);
-    const playY=140,settY=155,skinY=170,margin=15;
-    if(Math.abs(c.y-playY)<margin)menuSelection=0;
-    else if(Math.abs(c.y-settY)<margin)menuSelection=1;
-    else if(Math.abs(c.y-skinY)<margin)menuSelection=2;
-    else if(c.y<H*0.4)menuSelection=(menuSelection+2)%3;
-    else menuSelection=(menuSelection+1)%3;
-    return;
-  }
   if(gameState!=="play"){
-    if(gameState==="settings"||gameState==="skins")gameState="title";
+    if(gameState==="title")startGame();
     else if(gameState==="dead")startGame();
     else if(gameState==="levelEnd")nextLevel();
     else if(gameState==="victory"){level=1;score=0;startGame();}
     return;
   }
   for(let t of e.changedTouches){
-    const c=getCanvasCoords(t);
-    // Check SHOOT button (bottom-right)
-    const shootBtnX=W-35,shootBtnY=H-45;
-    if(Math.sqrt((c.x-shootBtnX)**2+(c.y-shootBtnY)**2)<22){
-      shooting=true;shootBtnPressed=true;shootBtnAnim=1;continue;
-    }
-    // Check SWITCH WEAPON button
-    const switchBtnX=W-35,switchBtnY=H-90;
-    if(Math.sqrt((c.x-switchBtnX)**2+(c.y-switchBtnY)**2)<18){
-      switchWeapon(1);switchBtnPressed=true;switchBtnAnim=1;continue;
-    }
-    // Check USE/DOOR button
-    const useBtnX=W-35,useBtnY=H-135;
-    if(Math.sqrt((c.x-useBtnX)**2+(c.y-useBtnY)**2)<18){
-      doorUseRequested=true;continue;
-    }
-    // Left half = movement joystick, right half = turn
-    if(c.x<W/2){
-      touchL=t.identifier;touchStartL={x:c.x,y:c.y};
-    }else{
-      touchR=t.identifier;touchStartR={x:c.x,y:c.y};
+    if(t.clientX<W/2){// Left side - movement
+      touchL=t.identifier;touchStartL={x:t.clientX,y:t.clientY};
+    }else{// Right side - look/shoot
+      touchR=t.identifier;touchStartR={x:t.clientX,y:t.clientY};
+      shooting=true;
     }
   }
 },{passive:false});
@@ -1171,21 +1177,15 @@ canvas.addEventListener("touchstart",e=>{
 canvas.addEventListener("touchmove",e=>{
   e.preventDefault();
   for(let t of e.changedTouches){
-    const c=getCanvasCoords(t);
     if(t.identifier===touchL){
-      // Virtual joystick: delta from initial touch point
-      const dx=c.x-touchStartL.x,dy=c.y-touchStartL.y;
-      const deadZone=8;
-      moveF=Math.abs(dy)>deadZone?(-dy/Math.abs(dy)):0;
-      moveS=Math.abs(dx)>deadZone?(dx/Math.abs(dx)):0;
+      const dx=t.clientX-touchStartL.x,dy=t.clientY-touchStartL.y;
+      moveF=Math.abs(dy)>10?(-dy/Math.abs(dy)):0;
+      moveS=Math.abs(dx)>10?(dx/Math.abs(dx)):0;
     }
     if(t.identifier===touchR){
-      // Relative turning: delta from last position
-      const dx=c.x-touchStartR.x;
-      const deadZone=3;
-      turnR=Math.abs(dx)>deadZone?(dx/Math.abs(dx)):0;
-      // Reset reference point for smooth continuous turning
-      touchStartR={x:c.x,y:c.y};
+      const dx=t.clientX-touchStartR.x;
+      turnR=Math.abs(dx)>5?(dx/Math.abs(dx)):0;
+      touchStartR={x:t.clientX,y:t.clientY};
     }
   }
 },{passive:false});
@@ -1194,189 +1194,96 @@ canvas.addEventListener("touchend",e=>{
   e.preventDefault();
   for(let t of e.changedTouches){
     if(t.identifier===touchL){touchL=null;moveF=0;moveS=0;}
-    if(t.identifier===touchR){touchR=null;turnR=0;}
-    shootBtnPressed=false;switchBtnPressed=false;
+    if(t.identifier===touchR){touchR=null;turnR=0;shooting=false;}
   }
 },{passive:false});
 
-// Double-tap for door use and title menu click
+// Double-tap right side for use/door
 let lastTapTime=0;
 canvas.addEventListener("click",e=>{
-  if(gameState==="title"){
-    const c=getCanvasCoords(e);
-    const playY=140,settY=155,skinY=170,margin=15;
-    if(Math.abs(c.y-playY)<margin){menuSelection=0;startGame();}
-    else if(Math.abs(c.y-settY)<margin){menuSelection=1;gameState="settings";}
-    else if(Math.abs(c.y-skinY)<margin){menuSelection=2;gameState="skins";}
-    return;
-  }
   if(gameState!=="play")return;
   const now=Date.now();
-  if(now-lastTapTime<300){doorUseRequested=true;}
+  if(now-lastTapTime<300){tryOpenDoor();}
   lastTapTime=now;
 });
 
-// Render on-screen controls (bottom right buttons)
-function renderControls(){
-  if(gameState!=="play")return;
-  const bx1=W-35,by1=H-45,br1=18;
-  const bx2=W-35,by2=H-90,br2=14;
-  // Shoot button (explosion symbol)
-  const sa=shootBtnAnim>0?shootBtnAnim:0;
-  ctx.save();
-  ctx.globalAlpha=0.7+sa*0.3;
-  ctx.fillStyle=shootBtnPressed?"#f84":"#c52";
-  ctx.beginPath();ctx.arc(bx1,by1,br1+sa*3,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle="#fa6";ctx.lineWidth=1.5;ctx.stroke();
-  // Explosion symbol (star burst)
-  ctx.fillStyle="#ff0";ctx.strokeStyle="#ff0";ctx.lineWidth=1.5;
-  ctx.beginPath();
-  for(let i=0;i<8;i++){
-    const a=i*Math.PI/4;
-    const r1=4+sa*2,r2=9+sa*2;
-    const ix=bx1+Math.cos(a)*r1,iy=by1+Math.sin(a)*r1;
-    const ox=bx1+Math.cos(a)*r2,oy=by1+Math.sin(a)*r2;
-    ctx.moveTo(ix,iy);ctx.lineTo(ox,oy);
-  }
-  ctx.stroke();
-  ctx.beginPath();ctx.arc(bx1,by1,3,0,Math.PI*2);ctx.fill();
-  ctx.restore();
-  // Weapon switch button (recycling arrows symbol)
-  const wa=switchBtnAnim>0?switchBtnAnim:0;
-  ctx.save();
-  ctx.globalAlpha=0.7+wa*0.3;
-  ctx.fillStyle=switchBtnPressed?"#4af":"#36a";
-  ctx.beginPath();ctx.arc(bx2,by2,br2+wa*3,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle="#6cf";ctx.lineWidth=1.5;ctx.stroke();
-  // Recycling arrows symbol (two curved arrows)
-  ctx.strokeStyle="#fff";ctx.lineWidth=1.5;ctx.fillStyle="#fff";
-  // Arrow 1 (top arc)
-  ctx.beginPath();ctx.arc(bx2,by2,7,Math.PI*1.2,Math.PI*0.2);ctx.stroke();
-  // Arrowhead 1
-  const ah1x=bx2+Math.cos(Math.PI*0.2)*7,ah1y=by2+Math.sin(Math.PI*0.2)*7;
-  ctx.beginPath();ctx.moveTo(ah1x,ah1y);ctx.lineTo(ah1x+3,ah1y-2);ctx.lineTo(ah1x+1,ah1y+3);ctx.fill();
-  // Arrow 2 (bottom arc)
-  ctx.beginPath();ctx.arc(bx2,by2,7,Math.PI*0.2+Math.PI,Math.PI*1.2+Math.PI);ctx.stroke();
-  // Arrowhead 2
-  const ah2x=bx2+Math.cos(Math.PI*1.2+Math.PI)*7,ah2y=by2+Math.sin(Math.PI*1.2+Math.PI)*7;
-  ctx.beginPath();ctx.moveTo(ah2x,ah2y);ctx.lineTo(ah2x-3,ah2y+2);ctx.lineTo(ah2x-1,ah2y-3);ctx.fill();
-  ctx.restore();
-  // USE/DOOR button (door icon)
-  const bx3=W-35,by3=H-135,br3=14;
-  ctx.save();
-  ctx.globalAlpha=0.7;
-  ctx.fillStyle="#a62";
-  ctx.beginPath();ctx.arc(bx3,by3,br3,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle="#da4";ctx.lineWidth=1.5;ctx.stroke();
-  // Door icon
-  ctx.fillStyle="#fff";ctx.fillRect(bx3-5,by3-6,10,12);
-  ctx.fillStyle="#a62";ctx.fillRect(bx3-3,by3-4,6,8);
-  ctx.fillStyle="#ff0";ctx.fillRect(bx3+1,by3-1,2,2);
-  ctx.restore();
-
-  // Movement indicator (bottom left)
-  if(moveF!==0||moveS!==0){
-    ctx.save();ctx.globalAlpha=0.4;
-    ctx.strokeStyle="#0f0";ctx.lineWidth=1;
-    ctx.beginPath();ctx.arc(30,H-55,18,0,Math.PI*2);ctx.stroke();
-    const mx=30+moveS*10,my=H-55-moveF*10;
-    ctx.fillStyle="#0f0";ctx.beginPath();ctx.arc(mx,my,3,0,Math.PI*2);ctx.fill();
-    ctx.restore();
-  }
-}
-// R1 scroll wheel for AIMING (vertical aim offset)
+// R1 scroll wheel for weapon switching + menu cycling
 canvas.addEventListener("wheel",e=>{
   e.preventDefault();
-  if(gameState==="play"){
-    scrollAimAmount=e.deltaY*aimSensitivity*0.01;
-    aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));
-  } else if(gameState==="title"){
-      menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;
+  if(gameState==="play"){switchWeapon(e.deltaY>0?1:-1);}
+  else if(gameState==="title"){level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1)));}
+  else if(gameState==="levelEnd"){/* wheel cycles not needed, tap to next */ }
+},{passive:false});
+// Also global wheel for R1 hardware (document)
+document.addEventListener("wheel",e=>{
+  if(gameState==="title"||gameState==="levelEnd"||gameState==="dead"||gameState==="victory"){
+    if(e.deltaY!==0){ if(gameState==="title"){level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1))); e.preventDefault();} }
   }
 },{passive:false});
 
-// R1 side button for use/interact
-// R1 side button - always register (removed isR1 gate for reliability)
-{
-  document.addEventListener("keydown",e=>{
-    if(e.key==="F5"||e.key==="F6"){if(gameState==="title"){if(menuSelection===0)startGame();else if(menuSelection===1)gameState="settings";else gameState="skins";}else if(gameState==="settings"||gameState==="skins"){gameState="title";}else if(gameState==="dead"){startGame();}else if(gameState==="levelEnd"){nextLevel();}else if(gameState==="victory"){level=1;score=0;startGame();}else if(gameState==="play"){doorUseRequested=true;}e.preventDefault();}
-  });
+// R1 side button for use/interact + manual reload (double duty)
+function handleReload(){
+  if(gameState!=="play") return;
+  const w=WEAPONS[curWeap];
+  if(!w.ammoType) return; // fist/chainsaw no reload
+  if(ammo[w.ammoType]>=maxAmmo[w.ammoType]){ pickupMsg="Ammo full!"; pickupTimer=60; return; }
+  // Manual reload: quick full refill of current ammo type from stock (Doom style: no mag, so just top up 50%)
+  const add=Math.min(w.cost*5, maxAmmo[w.ammoType]-ammo[w.ammoType]);
+  if(add>0){ ammo[w.ammoType]+=add; pickupMsg=w.name+" reloaded!"; pickupTimer=60; playSound(400,0.08,"square",0.12); }
 }
-
-// Debug log for R1 input diagnosis
-let lastInputDebug="waiting for input...";
-// Document-level wheel listener (backup for R1 WebView)
-document.addEventListener("wheel",e=>{e.preventDefault();if(gameState==="title"){menuSelection=(menuSelection+(e.deltaY>0?1:-1)+3)%3;if(typeof lastInputDebug!=="undefined")lastInputDebug="wheel dY="+e.deltaY+" sel="+menuSelection;}else if(gameState==="play"){scrollAimAmount=e.deltaY*aimSensitivity*0.01;aimOffsetY=Math.max(-30,Math.min(30,aimOffsetY+scrollAimAmount));}},{passive:false});
-// Log ALL keydown events for R1 diagnosis
-document.addEventListener("keydown",e=>{lastInputDebug="key="+e.key+" code="+e.code+" state="+gameState;});
-
-// Initialize
-
-// === R1 COMPREHENSIVE INPUT CAPTURE ===
-// Capture ALL event types to diagnose what R1 hardware actually sends
-var r1EvtLog=["scroll","pointerdown","pointermove","pointerup",
-  "mousedown","mouseup","click","dblclick","contextmenu"];
-r1EvtLog.forEach(function(evtName){
-  document.addEventListener(evtName,function(e){
-    if(typeof lastInputDebug!=="undefined")lastInputDebug=evtName+" x="+(e.clientX||0)+" y="+(e.clientY||0);
-    if(gameState==="title"&&(evtName==="click"||evtName==="pointerdown"||evtName==="mousedown")){
-      const c=getCanvasCoords(e);
-      const playY=140,settY=155,skinY=170,margin=15;
-      if(Math.abs(c.y-playY)<margin){menuSelection=0;startGame();}
-      else if(Math.abs(c.y-settY)<margin){menuSelection=1;gameState="settings";}
-      else if(Math.abs(c.y-skinY)<margin){menuSelection=2;gameState="skins";}
-      else if(c.y<H*0.4){menuSelection=(menuSelection+2)%3;}
-      else if(c.y>H*0.6){menuSelection=(menuSelection+1)%3;}
-    }
-  },{passive:true});
-});
-
-// Document-level touch for R1 WebView (backup)
-document.addEventListener("touchstart",function(e){
-  var t=e.changedTouches?e.changedTouches[0]:e;
-  if(typeof lastInputDebug!=="undefined")lastInputDebug="doc-touch y="+Math.round(t.clientY);
-  if(gameState==="title"){
-    const c=getCanvasCoords(t);
-    const playY=140,settY=155,skinY=170,margin=15;
-    if(Math.abs(c.y-playY)<margin){menuSelection=0;}
-    else if(Math.abs(c.y-settY)<margin){menuSelection=1;}
-    else if(Math.abs(c.y-skinY)<margin){menuSelection=2;}
-    else if(c.y<H*0.4){menuSelection=(menuSelection+2)%3;}
-    else{menuSelection=(menuSelection+1)%3;}
-  }
-},{passive:true});
-
-// Double-tap on title = confirm selection
-var titleLastTap=0;
-document.addEventListener("touchend",function(e){
-  if(gameState==="title"){
-    var now=Date.now();
-    if(now-titleLastTap<400){
-      if(typeof lastInputDebug!=="undefined")lastInputDebug="dbl-tap sel="+menuSelection;
-      if(menuSelection===0)startGame();
-      else if(menuSelection===1)gameState="settings";
-      else gameState="skins";
-    }
-    titleLastTap=now;
-  }
-},{passive:true});
-
-// Catch ALL keydown codes (R1 scroll wheel may send unusual keyCodes)
-document.addEventListener("keydown",function(e){
-  if(typeof lastInputDebug!=="undefined")lastInputDebug="KEY "+e.key+" c="+e.code+" kc="+e.keyCode;
-  if(gameState==="title"){
-    var k=e.key,kc=e.keyCode;
-    if(k==="ArrowDown"||k==="Down"||kc===40||kc===34||k==="PageDown"||k==="VolumeDown"){menuSelection=(menuSelection+1)%3;e.preventDefault();}
-    else if(k==="ArrowUp"||k==="Up"||kc===38||kc===33||k==="PageUp"||k==="VolumeUp"){menuSelection=(menuSelection+2)%3;e.preventDefault();}
-    else if(k==="Enter"||k==="F5"||k==="F6"||k===" "||kc===13||kc===32){
-      if(menuSelection===0)startGame();
-      else if(menuSelection===1)gameState="settings";
-      else gameState="skins";
+if(isR1){
+  document.addEventListener("keydown",e=>{
+    if(e.key==="F5"||e.key==="F6"){
+      // Try door first, if not near door then reload
+      const hadDoor=doors.some(d=>Math.hypot(d.x-px,d.y-py)<1.8 && d.locked);
+      tryOpenDoor();
+      // If no door interaction happened and not opening, treat as reload
+      setTimeout(()=>{ if(!hadDoor && doorErrorTimer===0) handleReload(); },10);
       e.preventDefault();
     }
-  }
+  });
+}
+// Fallback: keyboard E / Enter also reload on hold, and side button via F key for testing
+document.addEventListener("keydown",e=>{
+  if(e.key==="r"||e.key==="R"){ handleReload(); }
 });
 
+// --- R1 Minimalistic D-pads + Fire button (15% opacity, bare-bones) ---
+(function(){
+  const left=document.getElementById('dpad-left');
+  const right=document.getElementById('dpad-right');
+  const fire=document.getElementById('fire-btn');
+  if(!left||!right||!fire) return;
+  function bindDir(btn, dir){
+    const set=()=>{ if(dir==="up") moveF=1; else if(dir==="down") moveF=-1; else if(dir==="left") moveS=-1; else if(dir==="right") moveS=1; };
+    const clr=()=>{ moveF=0; moveS=0; };
+    btn.addEventListener('touchstart',e=>{ e.preventDefault(); set(); },{passive:false});
+    btn.addEventListener('touchend',e=>{ e.preventDefault(); clr(); },{passive:false});
+    btn.addEventListener('mousedown',e=>{ e.preventDefault(); set(); });
+    btn.addEventListener('mouseup',e=>{ e.preventDefault(); clr(); });
+    btn.addEventListener('mouseleave',clr);
+  }
+  function bindAim(btn, aim){
+    const set=()=>{ turnR=aim==="left"?-1:1; };
+    const clr=()=>{ turnR=0; };
+    btn.addEventListener('touchstart',e=>{ e.preventDefault(); set(); },{passive:false});
+    btn.addEventListener('touchend',e=>{ e.preventDefault(); clr(); },{passive:false});
+    btn.addEventListener('mousedown',e=>{ e.preventDefault(); set(); });
+    btn.addEventListener('mouseup',e=>{ e.preventDefault(); clr(); });
+    btn.addEventListener('mouseleave',clr);
+  }
+  left.querySelectorAll('button[data-dir]').forEach(b=>bindDir(b,b.dataset.dir));
+  right.querySelectorAll('button[data-aim]').forEach(b=>bindAim(b,b.dataset.aim));
+  // Fire button - circular with gun icon, only shoot while pressed
+  const startFire=e=>{ e.preventDefault(); if(gameState==="play") shooting=true; else if(gameState==="title") startGame(); else if(gameState==="levelEnd") nextLevel(); else if(gameState==="dead"||gameState==="victory") startGame(); };
+  const stopFire=e=>{ e.preventDefault(); shooting=false; };
+  fire.addEventListener('touchstart',startFire,{passive:false});
+  fire.addEventListener('touchend',stopFire,{passive:false});
+  fire.addEventListener('mousedown',startFire);
+  fire.addEventListener('mouseup',stopFire);
+  fire.addEventListener('mouseleave',stopFire);
+})();
+
+// Initialize
 loadLevel(1);
 gameLoop();
-

@@ -440,7 +440,7 @@ function loadLevel(n){
   map=lv.map.map(r=>r.split("").map(c=>c==="E"?"E":parseInt(c)||0));
   mapW=map[0].length;mapH=map.length;
   px=lv.spawn.x;py=lv.spawn.y;pa=lv.spawn.a;
-  pHealth=100;pArmor=0;pArmorType=0;curWeap=1;
+  pHealth=100;pArmor=0;pArmorType=0;curWeap=1;WEAPONS[0].dmg=10;
   hasWeap=[true,true,false,false,false,false,false,false];weapAnim=0;fireTimer=0;
   hasKey={red:false,blue:false,yellow:false};
   invulnTimer=0;berserkTimer=0;invisTimer=0;radSuitTimer=0;lightAmpTimer=0;mapReveal=false;
@@ -700,7 +700,7 @@ function updatePlayer(){
   if(pickupTimer>0)pickupTimer--;
   if(facePain>0)facePain--;
   if(invulnTimer>0)invulnTimer--;
-  if(berserkTimer>0)berserkTimer--;
+  if(berserkTimer>0){berserkTimer--; if(berserkTimer===0)WEAPONS[0].dmg=10;}
   if(invisTimer>0)invisTimer--;
   if(radSuitTimer>0)radSuitTimer--;
   if(lightAmpTimer>0)lightAmpTimer--;
@@ -1318,21 +1318,21 @@ canvas.addEventListener("click",e=>{
   lastTapTime=now;
 });
 
-// R1 scroll wheel for weapon switching + menu cycling (title + pause)
-canvas.addEventListener("wheel",e=>{
+// R1 scroll wheel for weapon switching + menu cycling (title + pause).
+// Single window-level handler so the scroll is only processed once (R1 dispatches
+// wheel events that would otherwise trigger both a canvas and a document listener).
+function onWheel(e){
   e.preventDefault();
-  if(gameState==="play"){switchWeapon(e.deltaY>0?1:-1);}
-  else if(gameState==="title"){ const hs=hasSave(); const max=hs?1:0; if(e.deltaY!==0){ // wheel cycles menu if save exists, else cycles level
-      if(Math.abs(e.deltaY)>0 && hs){ pauseCursor=(pauseCursor+(e.deltaY>0?1:-1)+max+1)%(max+1); } else { level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1))); }
-    }}
-  else if(gameState==="pause"){ pauseCursor=(pauseCursor+(e.deltaY>0?1:-1)+3)%3; }
-},{passive:false});
-// Also global wheel for R1 hardware (document)
-document.addEventListener("wheel",e=>{
-  if(gameState==="title"||gameState==="levelEnd"||gameState==="dead"||gameState==="victory"){
-    if(e.deltaY!==0){ if(gameState==="title"){level=Math.max(1,Math.min(maxLevel,level+(e.deltaY>0?1:-1))); e.preventDefault();} }
+  const dir=e.deltaY>0?1:-1;
+  if(gameState==="play"){ switchWeapon(dir); }
+  else if(gameState==="title"){
+    const hs=hasSave(); const max=hs?1:0;
+    if(hs){ pauseCursor=(pauseCursor+dir+max+1)%(max+1); }
+    else { level=Math.max(1,Math.min(maxLevel,level+dir)); }
   }
-},{passive:false});
+  else if(gameState==="pause"){ pauseCursor=(pauseCursor+dir+3)%3; }
+}
+window.addEventListener("wheel",onWheel,{passive:false});
 
 // R1 side button for use/interact + manual reload (double duty)
 function handleReload(){

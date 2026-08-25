@@ -1,6 +1,7 @@
 // DOOM by GLX - Complete R1 Edition
 // Created by Jeff Hollaway [GhostLegacyX]
 const W=240,H=282,MAP_S=16,TEX=64,FOV=Math.PI/3,HALF_FOV=FOV/2;
+const AUTO_AIM_RANGE=7, AUTO_AIM_STRENGTH=0.55; // subtle aim-assist (partial pull toward nearest enemy in cone)
 const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 canvas.width=W;canvas.height=H;
@@ -561,12 +562,36 @@ function switchWeapon(dir){
 }
 function selectWeapon(idx){if(hasWeap[idx]){const w=WEAPONS[idx];if(!w.ammoType||ammo[w.ammoType]>=w.cost){curWeap=idx;sndWeaponSwitch();}}}
 
+// Slight aim-assist: bias the shot toward the nearest enemy inside a narrow
+// forward cone, and gently nudge the view toward it. Kept subtle (partial pull)
+// so the player still does the aiming.
+function aimAssistAngle(){
+  let best=null,bestDiff=0.28; // ~16 degree cone
+  enemies.forEach(e=>{
+    if(e.dead)return;
+    const ex=e.x-px,ey=e.y-py;
+    const dist=Math.sqrt(ex*ex+ey*ey);
+    if(dist>AUTO_AIM_RANGE)return;
+    let a=Math.atan2(ey,ex);
+    let diff=a-pa;
+    while(diff>Math.PI)diff-=2*Math.PI;
+    while(diff<-Math.PI)diff+=2*Math.PI;
+    if(Math.abs(diff)<bestDiff){bestDiff=Math.abs(diff);best=a;}
+  });
+  if(best===null)return pa;
+  let diff=best-pa;
+  while(diff>Math.PI)diff-=2*Math.PI;
+  while(diff<-Math.PI)diff+=2*Math.PI;
+  return pa+diff*AUTO_AIM_STRENGTH;
+}
+
 // Fire weapon
 function fireWeapon(){
   if(fireTimer>0||weapAnim>0)return;
   const w=WEAPONS[curWeap];
   if(w.ammoType&&ammo[w.ammoType]<w.cost)return;
   if(w.ammoType)ammo[w.ammoType]-=w.cost;
+  const fireAngle=aimAssistAngle();
   fireTimer=w.rate;weapAnim=10;
   if(curWeap===0){sndShoot();}
   else if(curWeap===2){sndShotgun();}
@@ -578,14 +603,14 @@ function fireWeapon(){
   damageFlash=3;
   // Hitscan or projectile
   if(curWeap===4){// Rocket - projectile
-    projectiles.push({x:px,y:py,dx:Math.cos(pa)*0.1,dy:Math.sin(pa)*0.1,dmg:w.dmg,owner:"player",life:300,type:"rocket"});
+    projectiles.push({x:px,y:py,dx:Math.cos(fireAngle)*0.1,dy:Math.sin(fireAngle)*0.1,dmg:w.dmg,owner:"player",life:300,type:"rocket"});
   }else if(curWeap===5){// Plasma
-    projectiles.push({x:px,y:py,dx:Math.cos(pa)*0.12,dy:Math.sin(pa)*0.12,dmg:w.dmg,owner:"player",life:200,type:"plasma"});
+    projectiles.push({x:px,y:py,dx:Math.cos(fireAngle)*0.12,dy:Math.sin(fireAngle)*0.12,dmg:w.dmg,owner:"player",life:200,type:"plasma"});
   }else{// Hitscan
     let dmg=w.dmg;if(berserkTimer>0&&curWeap===0)dmg=100;
     const spread=w.spread;const pellets=curWeap===2?7:curWeap===7?12:1;
     for(let p=0;p<pellets;p++){
-      const a=pa+(Math.random()-0.5)*spread;
+      const a=fireAngle+(Math.random()-0.5)*spread;
       const dx=Math.cos(a),dy=Math.sin(a);
       let hit=null,hitDist=w.range;
       enemies.forEach(e=>{
@@ -1305,17 +1330,13 @@ canvas.addEventListener("touchend",e=>{
   }
 },{passive:false});
 
-// Double-tap right side for use/door
-let lastTapTime=0;
+// Single tap for use/door
 canvas.addEventListener("click",e=>{
   if(gameState==="pause"){ handlePauseSelect(); return; }
   if(gameState==="title"){ doTitleSelect(); return; }
   if(gameState==="levelEnd"){ nextLevel(); return; }
   if(gameState==="dead"||gameState==="victory"){ startGame(); return; }
-  if(gameState!=="play")return;
-  const now=Date.now();
-  if(now-lastTapTime<300){tryOpenDoor();}
-  lastTapTime=now;
+  if(gameState==="play"){ tryOpenDoor(); }
 });
 
 // R1 scroll wheel for weapon switching + menu cycling (title + pause).

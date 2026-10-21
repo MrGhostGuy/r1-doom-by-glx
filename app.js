@@ -92,13 +92,13 @@ const WEAPONS=[
 
 // Enemy types: name,hp,speed,damage,attackRate,score,sprite color
 const ENEMY_TYPES={
-  zombie:{name:"Zombie",hp:20,spd:0.015,dmg:8,rate:40,score:50,color:"#4a4"},
-  imp:{name:"Imp",hp:60,spd:0.02,dmg:12,rate:50,score:100,color:"#a64"},
-  demon:{name:"Demon",hp:150,spd:0.03,dmg:25,rate:30,score:200,color:"#a44"},
-  spectre:{name:"Spectre",hp:150,spd:0.035,dmg:22,rate:32,score:250,color:"#646"},
-  caco:{name:"Cacodemon",hp:400,spd:0.018,dmg:20,rate:60,score:400,color:"#a33"},
-  baron:{name:"Baron",hp:1000,spd:0.015,dmg:40,rate:70,score:1000,color:"#633"},
-  lost:{name:"Lost Soul",hp:80,spd:0.04,dmg:10,rate:35,score:150,color:"#aa6"}
+  zombie:{name:"Zombie",hp:20,spd:0.022,dmg:8,rate:35,score:50,color:"#4a4"},
+  imp:{name:"Imp",hp:60,spd:0.028,dmg:12,rate:42,score:100,color:"#a64"},
+  demon:{name:"Demon",hp:150,spd:0.038,dmg:25,rate:25,score:200,color:"#a44"},
+  spectre:{name:"Spectre",hp:150,spd:0.045,dmg:22,rate:28,score:250,color:"#646"},
+  caco:{name:"Cacodemon",hp:400,spd:0.025,dmg:20,rate:50,score:400,color:"#a33"},
+  baron:{name:"Baron",hp:1000,spd:0.02,dmg:40,rate:60,score:1000,color:"#633"},
+  lost:{name:"Lost Soul",hp:80,spd:0.05,dmg:10,rate:30,score:150,color:"#aa6"}
 };
 
 // Item types
@@ -586,13 +586,14 @@ function aimAssistAngle(){
 }
 
 // Fire weapon
+let screenShake=0; // screen shake intensity
 function fireWeapon(){
   if(fireTimer>0||weapAnim>0)return;
   const w=WEAPONS[curWeap];
   if(w.ammoType&&ammo[w.ammoType]<w.cost)return;
   if(w.ammoType)ammo[w.ammoType]-=w.cost;
-  const fireAngle=aimAssistAngle();
   fireTimer=w.rate;weapAnim=10;
+  screenShake=curWeap===2?4:curWeap===4?5:curWeap===7?6:2; // heavier weapons shake more
   if(curWeap===0){sndShoot();}
   else if(curWeap===2){sndShotgun();}
   else if(curWeap===4){sndRocket();}
@@ -681,7 +682,7 @@ function updateEnemies(){
     const dx=px-e.x,dy=py-e.y,dist=Math.sqrt(dx*dx+dy*dy);
     const toPlayer=Math.atan2(dy,dx);
     // Alert if close or shot
-    if(dist<8&&!e.alert){e.alert=true;e.state="chase";}
+    if(dist<12&&!e.alert){e.alert=true;e.state="chase";}
     if(e.state==="idle"){
       e.timer--;if(e.timer<=0){e.dir=Math.random()*Math.PI*2;e.timer=60+Math.random()*120;}
       const nx=e.x+Math.cos(e.dir)*e.spd*0.5,ny=e.y+Math.sin(e.dir)*e.spd*0.5;
@@ -713,8 +714,8 @@ function updateDoors(){
 
 // Player movement
 function updatePlayer(){
-  pa+=turnR*0.04;
-  const spd=0.05;
+  pa+=turnR*0.06;  // Faster turning (DOOM feel)
+  const spd=0.08;  // Faster movement (DOOM is FAST)
   const nx=px+Math.cos(pa)*moveF*spd-Math.sin(pa)*moveS*spd;
   const ny=py+Math.sin(pa)*moveF*spd+Math.cos(pa)*moveS*spd;
   if(canMove(nx,py))px=nx;
@@ -722,6 +723,7 @@ function updatePlayer(){
   if(fireTimer>0)fireTimer--;
   if(weapAnim>0)weapAnim--;
   if(damageFlash>0)damageFlash--;
+  if(screenShake>0)screenShake-=0.5;
   if(pickupTimer>0)pickupTimer--;
   if(facePain>0)facePain--;
   if(invulnTimer>0)invulnTimer--;
@@ -746,6 +748,9 @@ let zBuffer=new Array(W);
 function renderScene(){
   const viewH=H-60;// Reserve bottom for HUD
   const bright=lightAmpTimer>0?1.5:1;
+  // Screen shake
+  ctx.save();
+  if(screenShake>0){ctx.translate((Math.random()-0.5)*screenShake,(Math.random()-0.5)*screenShake);}
   // Sky and floor
   ctx.fillStyle=invulnTimer>0?"#444":"#333";ctx.fillRect(0,0,W,viewH/2);
   ctx.fillStyle=invulnTimer>0?"#555":"#555";ctx.fillRect(0,viewH/2,W,viewH/2);
@@ -787,6 +792,7 @@ function renderScene(){
       for(let ty=wallTop;ty<wallTop+wallH;ty+=wallH/8){ctx.fillRect(x,ty,1,1);}
     }
   }
+  ctx.restore(); // undo screen shake
 }
 
 // Render sprites (enemies and items)
